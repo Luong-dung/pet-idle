@@ -1,6 +1,7 @@
 class_name GameState
 extends RefCounted
 
+const UI = preload("res://scripts/ui_text.gd")
 const SAVE_PATH := "user://pet_idle_save.json"
 const SAVE_VERSION := 1
 var balances: Dictionary = {}
@@ -53,7 +54,7 @@ func _reset_progress_for(character_id: String) -> void:
 
 func assign(room_index: int, category: String, character_id: String) -> String:
     if room_index < 0 or room_index >= rooms.size() or not (category in ["pet", "employee"]):
-        return "Invalid room or role"
+        return UI.t("error.invalid_room_role")
     if character_id == "":
         rooms[room_index][category] = ""
         rooms[room_index]["progress"] = 0.0
@@ -61,19 +62,19 @@ func assign(room_index: int, category: String, character_id: String) -> String:
             rooms[room_index]["employee"] = ""
         return ""
     if not characters.has(character_id):
-        return "Character is not owned"
+        return UI.t("error.character_not_owned")
     var info := GameData.identity_info(characters[character_id]["identity"])
     if info["category"] != category:
-        return "Wrong character role"
+        return UI.t("error.wrong_role")
     if room_for(character_id) >= 0 and rooms[room_index][category] != character_id:
-        return "Character is already assigned"
+        return UI.t("error.already_assigned")
     if category == "employee":
         var pet_id: String = rooms[room_index]["pet"]
         if pet_id == "":
-            return "Assign a pet first"
+            return UI.t("error.assign_pet_first")
         var pet_info := GameData.identity_info(characters[pet_id]["identity"])
         if pet_info["system"] != info["system"]:
-            return "Employee must match the pet's system"
+            return UI.t("error.employee_system")
     else:
         var employee_id: String = rooms[room_index]["employee"]
         if employee_id != "":
@@ -87,7 +88,7 @@ func assign(room_index: int, category: String, character_id: String) -> String:
 func unlock_room() -> String:
     var cost := GameData.room_cost(rooms.size() + 1)
     if balances["gold"] < cost:
-        return "Not enough gold"
+        return UI.t("error.insufficient_gold")
     balances["gold"] -= cost
     var n := rooms.size() + 1
     rooms.append({"id": "r%d" % n, "pet": "", "employee": "", "progress": 0.0})
@@ -173,10 +174,10 @@ func catch_up(now: float) -> float:
 func draw(banner_id: String, paid: int) -> Dictionary:
     var banner := GameData.banner(banner_id)
     if banner.is_empty() or not GameData.PACKAGES.has(paid):
-        return {"error": "Invalid banner or package"}
+        return {"error": UI.t("error.invalid_banner")}
     var cost: int = banner["price"] * paid
     if balances[banner["currency"]] < cost:
-        return {"error": "Not enough %s" % banner["currency"]}
+        return {"error": UI.t("error.insufficient_resource", [UI.system_name(banner["currency"])])}
     balances[banner["currency"]] -= cost
     var results := []
     for i in GameData.PACKAGES[paid]:
@@ -191,23 +192,23 @@ func draw(banner_id: String, paid: int) -> Dictionary:
 
 func merge(ids: Array) -> Dictionary:
     if ids.is_empty():
-        return {"error": "Choose matching copies"}
+        return {"error": UI.t("error.choose_copies")}
     var seen := {}
     for id in ids:
         if not (id is String) or seen.has(id) or not characters.has(id):
-            return {"error": "Invalid or repeated copy"}
+            return {"error": UI.t("error.invalid_copy")}
         seen[id] = true
     var first = characters[ids[0]]
     var tier: int = first["tier"]
     if tier >= 26:
-        return {"error": "SSS+ is the maximum rank"}
+        return {"error": UI.t("error.max_rank")}
     var needed := 3 if tier % 3 == 2 else 2
     if ids.size() != needed:
-        return {"error": "Need %d matching copies" % needed}
+        return {"error": UI.t("error.need_copies", [needed])}
     for id in ids:
         var current = characters[id]
         if current["identity"] != first["identity"] or current["tier"] != tier:
-            return {"error": "Copies must have identical identity and tier"}
+            return {"error": UI.t("error.copies_mismatch")}
     var room_index := room_for(ids[0])
     for id in ids:
         var character = characters[id]
@@ -229,10 +230,10 @@ func merge(ids: Array) -> Dictionary:
 
 func buy_book(category: String, system: String) -> Dictionary:
     if not (category in ["pet", "employee"]) or not (system in GameData.SYSTEMS):
-        return {"error": "Invalid book"}
+        return {"error": UI.t("error.invalid_book")}
     var cost := GameData.book_cost(book_purchases[system])
     if balances[system] < cost:
-        return {"error": "Not enough %s" % system}
+        return {"error": UI.t("error.insufficient_resource", [UI.system_name(system)])}
     balances[system] -= cost
     book_purchases[system] += 1
     var id := make_id("b")
@@ -241,21 +242,21 @@ func buy_book(category: String, system: String) -> Dictionary:
 
 func equip_book(character_id: String, book_id: String) -> String:
     if not characters.has(character_id) or not books.has(book_id):
-        return "Character or book is missing"
+        return UI.t("error.character_or_book_missing")
     var character = characters[character_id]
     var book = books[book_id]
     var info := GameData.identity_info(character["identity"])
     if book["equipped_by"] != "":
-        return "Book is already equipped"
+        return UI.t("error.book_equipped")
     if book["category"] != info["category"]:
-        return "Book must match character role"
+        return UI.t("error.book_role")
     if book["system"] != info["system"] and book["system"] != character["foreign"]:
-        return "Unlock and equip this foreign collection system first"
+        return UI.t("error.foreign_unlock")
     if character["books"].size() + int(character["foreign"] != "") >= GameData.slots(character["tier"]):
-        return "No free skill slot"
+        return UI.t("error.no_slot")
     var system_count := book_count(character, book["system"])
     if system_count + int(book["system"] == character["foreign"]) >= 4:
-        return "Maximum four occupied slots per system"
+        return UI.t("error.system_slot_limit")
     character["books"].append(book_id)
     book["equipped_by"] = character_id
     _reset_progress_for(character_id)
@@ -263,10 +264,10 @@ func equip_book(character_id: String, book_id: String) -> String:
 
 func unequip_book(book_id: String) -> String:
     if not books.has(book_id):
-        return "Book is missing"
+        return UI.t("error.book_missing")
     var owner: String = books[book_id]["equipped_by"]
     if owner == "":
-        return "Book is not equipped"
+        return UI.t("error.book_not_equipped")
     if characters.has(owner):
         characters[owner]["books"].erase(book_id)
     books[book_id]["equipped_by"] = ""
@@ -275,22 +276,22 @@ func unequip_book(book_id: String) -> String:
 
 func equip_collection(character_id: String, system: String) -> String:
     if not characters.has(character_id):
-        return "Character is missing"
+        return UI.t("error.character_missing")
     var character = characters[character_id]
     var info := GameData.identity_info(character["identity"])
     if character["foreign"] != "":
-        return "Foreign collection skill already equipped"
+        return UI.t("error.foreign_already_equipped")
     if system == info["system"] or not collections[info["category"]].has(system):
-        return "Foreign system is not unlocked in this collection"
+        return UI.t("error.foreign_locked")
     if character["books"].size() >= GameData.slots(character["tier"]):
-        return "No free skill slot"
+        return UI.t("error.no_slot")
     character["foreign"] = system
     _reset_progress_for(character_id)
     return ""
 
 func unequip_collection(character_id: String) -> String:
     if not characters.has(character_id) or characters[character_id]["foreign"] == "":
-        return "No collection skill equipped"
+        return UI.t("error.collection_not_equipped")
     var foreign: String = characters[character_id]["foreign"]
     for book_id in characters[character_id]["books"].duplicate():
         if books[book_id]["system"] == foreign:
@@ -309,14 +310,14 @@ func save_game() -> String:
     var temp := path + ".tmp"
     var file := FileAccess.open(temp, FileAccess.WRITE)
     if file == null:
-        return "Could not open save file"
+        return UI.t("error.save_open")
     file.store_string(JSON.stringify(to_dict()))
     file.flush()
     file.close()
     if FileAccess.file_exists(path):
         DirAccess.copy_absolute(path, path + ".bak")
     var error := DirAccess.rename_absolute(temp, path)
-    return "" if error == OK else "Could not replace save file (%d)" % error
+    return "" if error == OK else UI.t("error.save_replace", [error])
 
 static func load_game() -> GameState:
     var game := _read_save(SAVE_PATH)

@@ -1,6 +1,7 @@
 extends Control
 
 const PortraitScript = preload("res://scripts/portrait.gd")
+const UI = preload("res://scripts/ui_text.gd")
 
 var game: GameState
 var page := "rooms"
@@ -120,9 +121,9 @@ func _build_shell() -> void:
     var nav := GridContainer.new()
     nav.columns = 3
     root.add_child(nav)
-    for item in [["Rooms", "rooms"], ["Characters", "characters"], ["Gacha", "gacha"],
-            ["Book Shop", "shop"], ["Collection", "collection"], ["Help", "help"]]:
-        var button := _button(item[0], "_change_page", [item[1]], Color("e9dfef"))
+    for item in [["nav.rooms", "rooms"], ["nav.characters", "characters"], ["nav.gacha", "gacha"],
+            ["nav.shop", "shop"], ["nav.collection", "collection"], ["nav.help", "help"]]:
+        var button := _button(UI.t(item[0]), "_change_page", [item[1]], Color("e9dfef"))
         button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
         nav.add_child(button)
     var scroll := ScrollContainer.new()
@@ -149,7 +150,7 @@ func _render() -> void:
         child.queue_free()
     for i in GameData.SYSTEMS.size():
         var system: String = GameData.SYSTEMS[i]
-        var item := _label("%s %s  %s" % [GameData.SYSTEM_ICONS[i], GameData.SYSTEM_NAMES[i], _amount(game.balances[system])], 13, GameData.SYSTEM_COLORS[i].darkened(0.35))
+        var item := _label("%s %s  %s" % [GameData.SYSTEM_ICONS[i], UI.system_name(system), _amount(game.balances[system])], 13, GameData.SYSTEM_COLORS[i].darkened(0.35))
         item.size_flags_horizontal = Control.SIZE_EXPAND_FILL
         balances_panel.add_child(item)
     for child in body.get_children():
@@ -164,24 +165,24 @@ func _render() -> void:
 
 func _amount(value: float) -> String:
     if value >= 1000000:
-        return "%.2fm" % (value / 1000000.0)
+        return ("%.2f" % (value / 1000000.0)).replace(".", ",") + " tr"
     if value >= 10000:
-        return "%.1fk" % (value / 1000.0)
-    return "%.1f" % value
+        return ("%.1f" % (value / 1000.0)).replace(".", ",") + " nghìn"
+    return ("%.1f" % value).replace(".", ",")
 
 func _character_name(id: String) -> String:
     if id == "" or not game.characters.has(id):
-        return "Empty"
+        return UI.t("common.empty")
     var character = game.characters[id]
     var info := GameData.identity_info(character["identity"])
     return "%s  [%s]" % [info["name"], GameData.rank_name(character["tier"])]
 
 func _render_rooms() -> void:
-    body.add_child(_label("Your little workshop", 21))
+    body.add_child(_label(UI.t("rooms.title"), 21))
     for i in game.rooms.size():
         var room = game.rooms[i]
         var box := _card(body, Color("fce9e4") if i % 2 == 0 else Color("e8f0ed"))
-        box.add_child(_label("ROOM %02d" % (i + 1), 18))
+        box.add_child(_label(UI.t("rooms.room_number", [i + 1]), 18))
         var actors := _row(box)
         if room["pet"] != "":
             actors.add_child(_portrait(game.characters[room["pet"]]["identity"]))
@@ -190,12 +191,12 @@ func _render_rooms() -> void:
         var actor_names := VBoxContainer.new()
         actor_names.size_flags_horizontal = Control.SIZE_EXPAND_FILL
         actors.add_child(actor_names)
-        actor_names.add_child(_label("Pet: " + _character_name(room["pet"])))
-        actor_names.add_child(_label("Helper: " + _character_name(room["employee"])))
+        actor_names.add_child(_label(UI.t("rooms.pet", [_character_name(room["pet"])])))
+        actor_names.add_child(_label(UI.t("rooms.employee", [_character_name(room["employee"])])))
         var production_data := game.production(room)
         if not production_data.is_empty():
             var remaining: float = maxf(0.0, production_data["cycle"] - room["progress"])
-            box.add_child(_label("+%s %s / %.1fs  •  next in %.1fs" % [_amount(production_data["output"]), production_data["system"], production_data["cycle"], remaining], 13))
+            box.add_child(_label(UI.t("rooms.production", [_amount(production_data["output"]), UI.system_name(production_data["system"]), _amount(production_data["cycle"]), _amount(remaining)]), 13))
             var progress := ProgressBar.new()
             progress.custom_minimum_size.y = 12
             progress.max_value = production_data["cycle"]
@@ -203,14 +204,14 @@ func _render_rooms() -> void:
             progress.show_percentage = false
             box.add_child(progress)
         else:
-            box.add_child(_label("Assign a pet to start production", 13))
+            box.add_child(_label(UI.t("rooms.assign_hint"), 13))
         var row := _row(box)
-        row.add_child(_button("Choose pet", "_choose_character", [i, "pet"], Color("f7c8a5")))
-        row.add_child(_button("Helper", "_choose_character", [i, "employee"], Color("c5dcf4")))
-    body.add_child(_button("Unlock room · %s gold" % _amount(GameData.room_cost(game.rooms.size() + 1)), "_unlock_room", [], Color("f5d98c")))
+        row.add_child(_button(UI.t("rooms.choose_pet"), "_choose_character", [i, "pet"], Color("f7c8a5")))
+        row.add_child(_button(UI.t("rooms.choose_employee"), "_choose_character", [i, "employee"], Color("c5dcf4")))
+    body.add_child(_button(UI.t("rooms.unlock", [_amount(GameData.room_cost(game.rooms.size() + 1))]), "_unlock_room", [], Color("f5d98c")))
 
 func _render_characters() -> void:
-    body.add_child(_label("Characters · %d owned" % game.characters.size(), 21))
+    body.add_child(_label(UI.t("characters.title", [game.characters.size()]), 21))
     for id in game.characters:
         var character = game.characters[id]
         var info := GameData.identity_info(character["identity"])
@@ -221,59 +222,60 @@ func _render_characters() -> void:
         var details := VBoxContainer.new()
         details.size_flags_horizontal = Control.SIZE_EXPAND_FILL
         actor_row.add_child(details)
-        details.add_child(_label("%s %s · %s" % ["Pet" if info["category"] == "pet" else "Helper", info["name"], GameData.rank_name(character["tier"])], 16))
-        details.add_child(_label("%s · %d/%d slots · %s" % [GameData.SYSTEM_NAMES[GameData.SYSTEMS.find(info["system"])], character["books"].size() + int(character["foreign"] != ""), GameData.slots(character["tier"]), "Room %d" % (game.room_for(id) + 1) if game.room_for(id) >= 0 else "Unassigned"], 12))
+        details.add_child(_label(UI.t("characters.name_rank", [UI.category_name(info["category"]), info["name"], GameData.rank_name(character["tier"])]), 16))
+        var room_text := UI.t("common.room", [game.room_for(id) + 1]) if game.room_for(id) >= 0 else UI.t("common.unassigned")
+        details.add_child(_label(UI.t("characters.summary", [UI.system_name(info["system"]), character["books"].size() + int(character["foreign"] != ""), GameData.slots(character["tier"]), room_text]), 12))
         var row := _row(box)
-        row.add_child(_button("Details", "_show_character", [id], Color("c7dbea")))
+        row.add_child(_button(UI.t("characters.details"), "_show_character", [id], Color("c7dbea")))
         if character["tier"] < 26:
-            row.add_child(_button("Merge", "_merge_prompt", [id], Color("f2c5d5")))
+            row.add_child(_button(UI.t("characters.merge"), "_merge_prompt", [id], Color("f2c5d5")))
 
 func _render_gacha() -> void:
-    body.add_child(_label("Wish meadow", 21))
-    body.add_child(_label("Normal: F 35%, E 28%, D 20%, C 12%, B 5%\nVIP: S 90%, SS 10%\nSubtiers: − 60%, plain 30%, + 10%", 13))
+    body.add_child(_label(UI.t("gacha.title"), 21))
+    body.add_child(_label(UI.t("gacha.rates"), 13))
     for banner_id in ["normal_pet", "normal_employee", "vip_pet", "vip_employee"]:
         var banner := GameData.banner(banner_id)
         var box := _card(body, Color("ebe7f6") if banner["currency"] == "crystal" else Color("fff0d7"))
-        box.add_child(_label(banner_id.replace("_", " ").capitalize(), 18))
-        box.add_child(_label("%s %s per paid pull · 10→11 · 100→111" % [_amount(banner["price"]), banner["currency"]], 13))
+        box.add_child(_label(UI.t("gacha.banner." + banner_id), 18))
+        box.add_child(_label(UI.t("gacha.price", [_amount(banner["price"]), UI.system_name(banner["currency"])]), 13))
         var row := _row(box)
         for paid in [1, 10, 100]:
-            var button := _button("×%d" % paid, "_pull_gacha", [banner_id, paid], Color("f7c9a7"))
+            var button := _button(UI.t("gacha.package", [paid]), "_pull_gacha", [banner_id, paid], Color("f7c9a7"))
             button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
             row.add_child(button)
 
 func _render_shop() -> void:
-    body.add_child(_label("Skill book shop", 21))
-    body.add_child(_label("PROVISIONAL: books cost their own system resource. Four identical books grant the full effect. Pet books boost output; helper books boost cooldown reduction.", 13))
-    body.add_child(_label("Identical copies in 1/2/3/4 slots: 10% / 30% / 60% / 100% of full effect.", 13))
+    body.add_child(_label(UI.t("shop.title"), 21))
+    body.add_child(_label(UI.t("shop.provisional"), 13))
+    body.add_child(_label(UI.t("shop.stacks"), 13))
     for i in GameData.SYSTEMS.size():
         var system: String = GameData.SYSTEMS[i]
         var box := _card(body, GameData.SYSTEM_COLORS[i].lightened(0.72))
-        box.add_child(_label(GameData.SYSTEM_NAMES[i] + " · next " + _amount(GameData.book_cost(game.book_purchases[system])), 16))
+        box.add_child(_label(UI.t("shop.next_price", [UI.system_name(system), _amount(GameData.book_cost(game.book_purchases[system]))]), 16))
         var row := _row(box)
-        row.add_child(_button("Pet book", "_buy_book", ["pet", system], Color("f7c8a5")))
-        row.add_child(_button("Helper book", "_buy_book", ["employee", system], Color("c5dcf4")))
-    body.add_child(_label("Owned books: %d" % game.books.size(), 14))
+        row.add_child(_button(UI.t("shop.pet_book"), "_buy_book", ["pet", system], Color("f7c8a5")))
+        row.add_child(_button(UI.t("shop.employee_book"), "_buy_book", ["employee", system], Color("c5dcf4")))
+    body.add_child(_label(UI.t("shop.owned", [game.books.size()]), 14))
     for book_id in game.books:
         var book = game.books[book_id]
         var owner: String = book["equipped_by"]
-        body.add_child(_label("%s · %s %s · %s" % [book_id, book["system"], book["category"], _character_name(owner) if owner != "" else "Available"], 12))
+        body.add_child(_label(UI.t("shop.book_entry", [book_id, UI.category_name(book["category"]), UI.system_name(book["system"]), _character_name(owner) if owner != "" else UI.t("common.available")]), 12))
 
 func _render_collection() -> void:
-    body.add_child(_label("Collection", 21))
-    body.add_child(_label("First acquisition unlocks each system forever, separately for pets and helpers.", 13))
+    body.add_child(_label(UI.t("collection.title"), 21))
+    body.add_child(_label(UI.t("collection.intro"), 13))
     for category in ["pet", "employee"]:
         var box := _card(body, Color("f9e7ec") if category == "pet" else Color("e4eff8"))
-        box.add_child(_label("PETS" if category == "pet" else "HELPERS", 18))
+        box.add_child(_label(UI.t("collection.pets" if category == "pet" else "collection.employees"), 18))
         for i in GameData.SYSTEMS.size():
             var system: String = GameData.SYSTEMS[i]
-            box.add_child(_label("%s %s  %s" % [GameData.SYSTEM_ICONS[i], GameData.SYSTEM_NAMES[i], "Unlocked" if game.collections[category].has(system) else "Locked"], 14))
-    body.add_child(_label("A foreign collection skill uses one slot. Pet: +50% output. Helper: +50% innate cooldown reduction (provisional formula).", 13))
+            box.add_child(_label(UI.t("collection.entry", [GameData.SYSTEM_ICONS[i], UI.system_name(system), UI.t("common.unlocked" if game.collections[category].has(system) else "common.locked")]), 14))
+    body.add_child(_label(UI.t("collection.effect"), 13))
 
 func _render_help() -> void:
     var box := _card(body)
-    box.add_child(_label("How to play", 21))
-    box.add_child(_label("Your first pet produces gold. Spend gold to unlock rooms or draw more pets and helpers. Helpers of the same system shorten cycles; matching pairs add output and speed. Merge 2/2/3 identical copies to climb ranks. Buy and equip books after reaching E rank. Acquire a pet or helper of another system to unlock a foreign collection skill. Progress saves locally and earns up to 24 hours while away.", 15))
+    box.add_child(_label(UI.t("help.title"), 21))
+    box.add_child(_label(UI.t("help.body"), 15))
 
 func _change_page(target: String) -> void:
     page = target
@@ -300,21 +302,21 @@ func _unlock_room() -> void:
     var error := game.unlock_room()
     if error == "":
         _save()
-    _feedback("Room unlocked!" if error == "" else error)
+    _feedback(UI.t("room.unlocked") if error == "" else error)
 
 func _choose_character(room_index: int, category: String) -> void:
     var options := []
     if game.rooms[room_index][category] != "":
-        options.append({"label": "Remove assignment", "method": "_assign", "args": [room_index, category, ""]})
+        options.append({"label": UI.t("assignment.remove"), "method": "_assign", "args": [room_index, category, ""]})
     for id in game.characters:
         var info := GameData.identity_info(game.characters[id]["identity"])
         if info["category"] != category:
             continue
         var label := _character_name(id)
         if game.room_for(id) >= 0 and game.rooms[room_index][category] != id:
-            label += " · assigned"
+            label += " · " + UI.t("common.assigned")
         options.append({"label": label, "method": "_assign", "args": [room_index, category, id]})
-    _show_options("Choose " + category, options)
+    _show_options(UI.t("assignment.choose", [UI.category_name(category)]), options)
 
 func _assign(room_index: int, category: String, id: String) -> void:
     _close_overlay()
@@ -322,7 +324,7 @@ func _assign(room_index: int, category: String, id: String) -> void:
     var error := game.assign(room_index, category, id)
     if error == "":
         _save()
-    _feedback("Assignment updated" if error == "" else error)
+    _feedback(UI.t("assignment.updated") if error == "" else error)
 
 func _pull_gacha(banner_id: String, paid: int) -> void:
     _sync_and_save()
@@ -334,15 +336,15 @@ func _pull_gacha(banner_id: String, paid: int) -> void:
     var lines := []
     for id in result["ids"]:
         lines.append(_character_name(id))
-    _show_options("Draw results · %d new" % result["ids"].size(), [{"label": "Close", "method": "_close_overlay", "args": []}], "\n".join(lines))
-    _feedback("Draw complete!")
+    _show_options(UI.t("gacha.results", [result["ids"].size()]), [{"label": UI.t("common.close"), "method": "_close_overlay", "args": []}], "\n".join(lines))
+    _feedback(UI.t("gacha.complete"))
 
 func _buy_book(category: String, system: String) -> void:
     _sync_and_save()
     var result := game.buy_book(category, system)
     if result["error"] == "":
         _save()
-    _feedback("Book purchased" if result["error"] == "" else result["error"])
+    _feedback(UI.t("book.purchased") if result["error"] == "" else result["error"])
 
 func _merge_prompt(id: String) -> void:
     if not game.characters.has(id):
@@ -354,13 +356,13 @@ func _merge_prompt(id: String) -> void:
             matching_ids.append(other_id)
     var needed := 3 if character["tier"] % 3 == 2 else 2
     if matching_ids.size() < needed:
-        _feedback("Need %d identical %s copies (%d owned)" % [needed, GameData.rank_name(character["tier"]), matching_ids.size()])
+        _feedback(UI.t("merge.need_owned", [needed, GameData.rank_name(character["tier"]), matching_ids.size()]))
         return
     matching_ids.erase(id)
     matching_ids.push_front(id)
-    _show_options("Merge %d copies into %s" % [needed, GameData.rank_name(character["tier"] + 1)], [
-        {"label": "Merge · return books and clear affected rooms", "method": "_merge", "args": [matching_ids.slice(0, needed)]}
-    ])
+    _show_options(UI.t("merge.title", [needed, GameData.rank_name(character["tier"] + 1)]), [
+        {"label": UI.t("merge.confirm"), "method": "_merge", "args": [matching_ids.slice(0, needed)]}
+    ], UI.t("merge.warning"))
 
 func _merge(ids: Array) -> void:
     _close_overlay()
@@ -368,7 +370,7 @@ func _merge(ids: Array) -> void:
     var result := game.merge(ids)
     if result["error"] == "":
         _save()
-    _feedback("Merged into " + _character_name(result["id"]) if result["error"] == "" else result["error"])
+    _feedback(UI.t("merge.complete", [_character_name(result["id"])]) if result["error"] == "" else result["error"])
 
 func _show_character(id: String) -> void:
     if not game.characters.has(id):
@@ -376,25 +378,25 @@ func _show_character(id: String) -> void:
     var character = game.characters[id]
     var info := GameData.identity_info(character["identity"])
     var options := []
-    var details := "System: %s\nRank: %s · slots %d\nNative books: %d/4\nForeign skill: %s\n" % [info["system"], GameData.rank_name(character["tier"]), GameData.slots(character["tier"]), game.book_count(character, info["system"]), character["foreign"] if character["foreign"] != "" else "none"]
+    var details := UI.t("detail.main", [UI.system_name(info["system"]), GameData.rank_name(character["tier"]), GameData.slots(character["tier"]), game.book_count(character, info["system"]), UI.system_name(character["foreign"]) if character["foreign"] != "" else UI.t("common.none")])
     if character["foreign"] != "":
-        details += "Foreign slots: %d/4 (includes collection skill)\nForeign books affect only their own resource system.\n" % (game.book_count(character, character["foreign"]) + 1)
+        details += UI.t("detail.foreign", [game.book_count(character, character["foreign"]) + 1])
     if info["category"] == "pet":
-        details += "Book stack bonus: +%.0f%% output\n" % (game._book_bonus(character) * 100.0)
+        details += UI.t("detail.pet_bonus", [game._book_bonus(character) * 100.0])
     else:
-        details += "Book stack bonus: +%.0f%% reduction\n" % (game._book_bonus(character) * 100.0)
+        details += UI.t("detail.employee_bonus", [game._book_bonus(character) * 100.0])
     for book_id in game.books:
         var book = game.books[book_id]
         if book["equipped_by"] == "" and book["category"] == info["category"] and (book["system"] == info["system"] or book["system"] == character["foreign"]):
-            options.append({"label": "Equip %s book %s" % [book["system"], book_id], "method": "_equip_book", "args": [id, book_id]})
+            options.append({"label": UI.t("detail.equip_book", [UI.system_name(book["system"]), book_id]), "method": "_equip_book", "args": [id, book_id]})
     for book_id in character["books"]:
-        options.append({"label": "Unequip book " + book_id, "method": "_unequip_book", "args": [book_id]})
+        options.append({"label": UI.t("detail.unequip_book", [book_id]), "method": "_unequip_book", "args": [book_id]})
     if character["foreign"] == "":
         for system in GameData.SYSTEMS:
             if system != info["system"] and game.collections[info["category"]].has(system):
-                options.append({"label": "Equip %s collection skill" % system, "method": "_equip_collection", "args": [id, system]})
+                options.append({"label": UI.t("detail.equip_collection", [UI.system_name(system)]), "method": "_equip_collection", "args": [id, system]})
     else:
-        options.append({"label": "Unequip collection skill", "method": "_unequip_collection", "args": [id]})
+        options.append({"label": UI.t("detail.unequip_collection"), "method": "_unequip_collection", "args": [id]})
     _show_options(_character_name(id), options, details)
 
 func _equip_book(character_id: String, book_id: String) -> void:
@@ -403,7 +405,7 @@ func _equip_book(character_id: String, book_id: String) -> void:
     var error := game.equip_book(character_id, book_id)
     if error == "":
         _save()
-    _feedback("Book equipped" if error == "" else error)
+    _feedback(UI.t("book.equipped") if error == "" else error)
 
 func _unequip_book(book_id: String) -> void:
     _close_overlay()
@@ -411,7 +413,7 @@ func _unequip_book(book_id: String) -> void:
     var error := game.unequip_book(book_id)
     if error == "":
         _save()
-    _feedback("Book returned" if error == "" else error)
+    _feedback(UI.t("book.returned") if error == "" else error)
 
 func _equip_collection(character_id: String, system: String) -> void:
     _close_overlay()
@@ -419,7 +421,7 @@ func _equip_collection(character_id: String, system: String) -> void:
     var error := game.equip_collection(character_id, system)
     if error == "":
         _save()
-    _feedback("Collection skill equipped" if error == "" else error)
+    _feedback(UI.t("collection.equipped") if error == "" else error)
 
 func _unequip_collection(character_id: String) -> void:
     _close_overlay()
@@ -427,7 +429,7 @@ func _unequip_collection(character_id: String) -> void:
     var error := game.unequip_collection(character_id)
     if error == "":
         _save()
-    _feedback("Collection skill removed" if error == "" else error)
+    _feedback(UI.t("collection.removed") if error == "" else error)
 
 func _show_options(title: String, options: Array, details: String = "") -> void:
     for child in overlay.get_children():
@@ -446,17 +448,17 @@ func _show_options(title: String, options: Array, details: String = "") -> void:
     var box := VBoxContainer.new()
     panel.add_child(box)
     box.add_child(_label(title, 20))
-    if details != "":
-        box.add_child(_label(details, 13))
     var scroll := ScrollContainer.new()
     scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
     box.add_child(scroll)
     var choices := VBoxContainer.new()
     choices.size_flags_horizontal = Control.SIZE_EXPAND_FILL
     scroll.add_child(choices)
+    if details != "":
+        choices.add_child(_label(details, 13))
     for option in options:
         choices.add_child(_button(option["label"], option["method"], option["args"], Color("e8dff0")))
-    box.add_child(_button("Close", "_close_overlay", [], Color("f6c6c9")))
+    box.add_child(_button(UI.t("common.close"), "_close_overlay", [], Color("f6c6c9")))
 
 func _close_overlay() -> void:
     overlay.visible = false
