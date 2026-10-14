@@ -36,7 +36,8 @@ const START_BALANCES := {"gold": 0.0, "crystal": 0.0, "essence": 0.0, "knowledge
 const CYCLE_FLOOR := 1.0 # PROVISIONAL safety guard, not a balance rule.
 const OFFLINE_CAP := 86400.0
 const BOOK_BASE_COST := 1000
-const BOOK_COST_GROWTH := 1.1
+const BOOK_GROWTH_NUMERATOR := 11
+const BOOK_GROWTH_DENOMINATOR := 10
 const BOOK_STACK := [0.0, 0.1, 0.3, 0.6, 1.0]
 # PROVISIONAL: one book type per system/category; a full stack gives +100% pet output or employee reduction.
 const BOOK_FULL_EFFECT := 1.0
@@ -68,10 +69,16 @@ static func slots(tier: int) -> int:
 static func room_cost(room_number: int) -> int:
     if room_number <= 3:
         return 0
-    # Bound huge values before float overflow; these rooms are unbuyable in practice.
-    if room_number > 100:
+    # Saturate only when the exact cost exceeds signed 64-bit storage.
+    if room_number > 200:
         return 9223372036854775807
-    return int(ceil(2000.0 * pow(1.2, room_number - 4)))
+    var value := 2000.0 * pow(1.2, room_number - 4)
+    if not is_finite(value) or value >= 9223372036854775807.0:
+        return 9223372036854775807
+    var nearest := roundf(value)
+    if absf(value - nearest) < 0.00000001:
+        return int(nearest)
+    return int(ceil(value))
 
 static func book_cost(purchases: int) -> int:
     if purchases < 0 or purchases > 300:
@@ -80,7 +87,7 @@ static func book_cost(purchases: int) -> int:
     for i in purchases:
         if cost > 838488366986797800:
             return 9223372036854775807
-        cost = (cost * 11 + 9) / 10 # Exact integer ceil of the next 10% increase.
+        cost = (cost * BOOK_GROWTH_NUMERATOR + BOOK_GROWTH_DENOMINATOR - 1) / BOOK_GROWTH_DENOMINATOR
     return cost
 
 static func banner(banner_id: String) -> Dictionary:

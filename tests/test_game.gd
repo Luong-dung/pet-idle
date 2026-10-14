@@ -21,6 +21,15 @@ func _run_and_quit() -> void:
     quit(0 if failures == 0 else 1)
 
 func run_tests() -> void:
+    var identity_names := {}
+    for category in ["pet", "employee"]:
+        for system in GameData.SYSTEMS:
+            for index in 3:
+                var info := GameData.identity_info(GameData.identity(category, system, index))
+                check(not info.is_empty(), "roster identity exists")
+                check(not identity_names.has(info["name"]), "roster names unique")
+                identity_names[info["name"]] = true
+    check(identity_names.size() == 36, "18 pets and 18 employees")
     var g := GameState.new_game()
     check(g.rooms.size() == 3, "three free rooms")
     check(g.characters.size() == 1 and g.rooms[0]["pet"] != "", "starter pet enables production")
@@ -75,6 +84,17 @@ func run_tests() -> void:
     check(g.merge([plus_a, plus_b, plus_c])["error"] == "" , "plus to next major minus")
     check(g.merge([high_pet, high_pet])["error"] != "", "same instance cannot merge twice")
     check(g.merge([high_pet, m1])["error"] != "", "missing consumed copy rejected")
+    var rank_game := GameState.new_game()
+    var b_copies := []
+    var ss_copies := []
+    for n in 3:
+        b_copies.append(rank_game.add_character("pet_gold_1", 14))
+        ss_copies.append(rank_game.add_character("pet_gold_2", 23))
+    var a_result := rank_game.merge(b_copies)
+    var sss_result := rank_game.merge(ss_copies)
+    check(a_result["error"] == "" and rank_game.characters[a_result["id"]]["tier"] == 15, "B+ merges to A-")
+    check(sss_result["error"] == "" and rank_game.characters[sss_result["id"]]["tier"] == 24, "SS+ merges to SSS-")
+    check(rank_game.merge([rank_game.add_character("pet_gold_0", 26), rank_game.add_character("pet_gold_0", 26), rank_game.add_character("pet_gold_0", 26)])["error"] != "", "SSS+ cannot merge")
 
     for banner_id in ["normal_pet", "normal_employee", "vip_pet", "vip_employee"]:
         var banner := GameData.banner(banner_id)
@@ -88,6 +108,10 @@ func run_tests() -> void:
     check(GameData.VIP_WEIGHTS == [90, 10] and GameData.SUBTIER_WEIGHTS == [60, 30, 10], "VIP and subtier exact odds")
     check(GameData.PACKAGES == {1: 1, 10: 11, 100: 111}, "bonus package counts")
     check(GameData.weighted_index([35, 28, 20, 12, 5], 34) == 0 and GameData.weighted_index([35, 28, 20, 12, 5], 35) == 1, "odds boundaries")
+    var package_game := GameState.new_game()
+    package_game.balances["gold"] = 10000.0
+    var ten_draw := package_game.draw("normal_employee", 10)
+    check(ten_draw["error"] == "" and ten_draw["ids"].size() == 11 and package_game.balances["gold"] == 0, "10 paid gives 11 total")
     check(g.draw("vip_pet", 1)["error"] != "", "insufficient crystal rejects draw")
     g.balances["gold"] = 100000.0
     g.rng.seed = 42
@@ -112,7 +136,10 @@ func run_tests() -> void:
     check(book_result["error"] == "" and book_result["cost"] == 1000, "first book price")
     check(GameData.book_cost(1) == 1100 and GameData.book_cost(2) == 1210, "book price ceiling growth")
     var book_id: String = book_result["id"]
+    check(g.assign(1, "pet", e_pet) == "", "pet assigned for equipment timing test")
+    g.rooms[1]["progress"] = 10.0
     check(g.equip_book(e_pet, book_id) == "", "equip owned native book")
+    near(g.rooms[1]["progress"], 0.0, "equipment change resets partial cycle")
     check(g.equip_book(e_pet, book_id) != "", "book cannot be equipped twice")
     near(g._book_bonus(g.characters[e_pet]), 0.1, "one book 10 percent full effect")
     check(g.equip_book(e_emp, book_id) != "", "pet book cannot equip employee")
@@ -131,6 +158,33 @@ func run_tests() -> void:
     check(g.merge([s_pet, duplicate])["error"] == "", "merge equipped character")
     for id in book_ids:
         check(g.books[id]["equipped_by"] == "", "merge returns equipped book")
+    var sss_pet := g.add_character("pet_gold_2", 24)
+    check(g.equip_collection(sss_pet, "crystal") == "", "SSS foreign system unlocked")
+    for id in book_ids:
+        check(g.equip_book(sss_pet, id) == "", "SSS equips four native books")
+    g.balances["crystal"] = 10000.0
+    var foreign_books := []
+    for n in 3:
+        var foreign_result := g.buy_book("pet", "crystal")
+        check(foreign_result["error"] == "", "foreign system book purchase")
+        foreign_books.append(foreign_result["id"])
+        check(g.equip_book(sss_pet, foreign_result["id"]) == "", "foreign book occupies collection system slot")
+    check(g.characters[sss_pet]["books"].size() + 1 == 8, "SSS 4+4 slot split")
+    near(g._book_bonus(g.characters[sss_pet]), 1.0, "foreign books do not alter native output")
+    check(g.equip_book(sss_pet, g.buy_book("pet", "crystal")["id"]) != "", "foreign system capped at four occupied slots")
+    check(g.unequip_collection(sss_pet) == "", "unequipping collection returns foreign books")
+    for id in foreign_books:
+        check(g.books[id]["equipped_by"] == "", "foreign book returned with collection skill")
+
+    var employee_game := GameState.new_game()
+    employee_game.balances["gold"] = 10000.0
+    var ranked_employee := employee_game.add_character("employee_gold_0", 12)
+    check(employee_game.assign(0, "employee", ranked_employee) == "", "ranked employee assigned")
+    for n in 4:
+        var employee_book := employee_game.buy_book("employee", "gold")
+        check(employee_book["error"] == "", "employee book purchase")
+        check(employee_game.equip_book(ranked_employee, employee_book["id"]) == "", "employee book equip")
+    near(employee_game.production(employee_game.rooms[0])["cycle"], maxf(1.0, (100.0 - 10.0 * pow(1.1, 12) * 2.0) * 0.9), "employee books amplify reduction, then pair time")
 
     var clone := GameState.from_dict(g.to_dict())
     check(clone != null and clone.characters.size() == g.characters.size(), "state round trip")
@@ -138,12 +192,22 @@ func run_tests() -> void:
     var bad := g.to_dict().duplicate(true)
     bad["balances"]["gold"] = -1.0
     check(GameState.from_dict(bad) == null, "negative balance rejected")
+    bad = g.to_dict().duplicate(true)
+    bad["next_id"] = 1
+    check(GameState.from_dict(bad) == null, "ID collision save rejected")
+    bad = g.to_dict().duplicate(true)
+    bad["collections"]["pet"].erase("gold")
+    check(GameState.from_dict(bad) == null, "missing permanent collection rejected")
+    bad = g.to_dict().duplicate(true)
+    bad["rooms"][1]["pet"] = bad["rooms"][0]["pet"]
+    check(GameState.from_dict(bad) == null, "duplicate room assignment in save rejected")
     var json_clone := GameState.from_dict(JSON.parse_string(JSON.stringify(g.to_dict())))
     check(json_clone != null, "JSON save round trip")
     g.last_timestamp = Time.get_unix_time_from_system()
     var save_error := g.save_game()
     check(save_error == "", "atomic save file write")
     if save_error == "":
+        check(g.save_game() == "", "backup save file write")
         var loaded := GameState.load_game()
         check(loaded.characters.size() == g.characters.size() and loaded.rooms.size() == g.rooms.size(), "load persisted inventory and rooms")
         var first_balance: float = loaded.balances["gold"]
@@ -154,6 +218,6 @@ func run_tests() -> void:
         broken.store_string("{bad JSON")
         broken.close()
         var recovered := GameState.load_game()
-        check(recovered.rooms.size() == 3 and recovered.characters.size() == 1, "corrupt save recovers new game")
+        check(recovered.characters.size() == g.characters.size(), "corrupt primary recovers from backup")
     else:
         check(false, "could not write malformed save fixture")

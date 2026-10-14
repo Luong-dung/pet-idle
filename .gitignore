@@ -1,5 +1,6 @@
 .godot/
 .import/
+*.import
 *.apk
 *.aab
 build/

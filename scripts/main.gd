@@ -1,5 +1,7 @@
 extends Control
 
+const PortraitScript = preload("res://scripts/portrait.gd")
+
 var game: GameState
 var page := "rooms"
 var body: VBoxContainer
@@ -7,6 +9,7 @@ var balances_panel: GridContainer
 var overlay: ColorRect
 var status: Label
 var timer := 0.0
+var autosave_timer := 0.0
 const BG := Color("fff8ee")
 const INK := Color("414052")
 const SOFT := Color("fffdf9")
@@ -32,10 +35,14 @@ func _process(delta: float) -> void:
     if game == null:
         return
     timer += delta
+    autosave_timer += delta
     if timer >= 1.0:
         game.catch_up(Time.get_unix_time_from_system())
         timer = 0.0
         _render()
+    if autosave_timer >= 15.0:
+        autosave_timer = 0.0
+        _save()
 
 func _style(color: Color, radius: int = 16) -> StyleBoxFlat:
     var style := StyleBoxFlat.new()
@@ -84,6 +91,11 @@ func _row(parent: Node) -> HBoxContainer:
     parent.add_child(row)
     return row
 
+func _portrait(identity_id: String) -> Control:
+    var portrait = PortraitScript.new()
+    portrait.identity_id = identity_id
+    return portrait
+
 func _build_shell() -> void:
     var background := ColorRect.new()
     background.color = BG
@@ -99,6 +111,9 @@ func _build_shell() -> void:
     var title := _label("✿ PET IDLE", 28, Color("b55f78"))
     title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
     header.add_child(title)
+    var title_tween := create_tween().set_loops()
+    title_tween.tween_property(title, "modulate:a", 0.72, 1.5)
+    title_tween.tween_property(title, "modulate:a", 1.0, 1.5)
     balances_panel = GridContainer.new()
     balances_panel.columns = 2
     header.add_child(balances_panel)
@@ -167,8 +182,16 @@ func _render_rooms() -> void:
         var room = game.rooms[i]
         var box := _card(body, Color("fce9e4") if i % 2 == 0 else Color("e8f0ed"))
         box.add_child(_label("ROOM %02d" % (i + 1), 18))
-        box.add_child(_label("Pet: " + _character_name(room["pet"])))
-        box.add_child(_label("Helper: " + _character_name(room["employee"])))
+        var actors := _row(box)
+        if room["pet"] != "":
+            actors.add_child(_portrait(game.characters[room["pet"]]["identity"]))
+        if room["employee"] != "":
+            actors.add_child(_portrait(game.characters[room["employee"]]["identity"]))
+        var actor_names := VBoxContainer.new()
+        actor_names.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+        actors.add_child(actor_names)
+        actor_names.add_child(_label("Pet: " + _character_name(room["pet"])))
+        actor_names.add_child(_label("Helper: " + _character_name(room["employee"])))
         var production_data := game.production(room)
         if not production_data.is_empty():
             var remaining: float = maxf(0.0, production_data["cycle"] - room["progress"])
@@ -193,8 +216,13 @@ func _render_characters() -> void:
         var info := GameData.identity_info(character["identity"])
         var color: Color = GameData.SYSTEM_COLORS[GameData.SYSTEMS.find(info["system"])].lightened(0.73)
         var box := _card(body, color)
-        box.add_child(_label("%s %s · %s" % ["Pet" if info["category"] == "pet" else "Helper", info["name"], GameData.rank_name(character["tier"])], 16))
-        box.add_child(_label("%s · %d/%d slots · %s" % [GameData.SYSTEM_NAMES[GameData.SYSTEMS.find(info["system"])], character["books"].size() + int(character["foreign"] != ""), GameData.slots(character["tier"]), "Room %d" % (game.room_for(id) + 1) if game.room_for(id) >= 0 else "Unassigned"], 12))
+        var actor_row := _row(box)
+        actor_row.add_child(_portrait(character["identity"]))
+        var details := VBoxContainer.new()
+        details.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+        actor_row.add_child(details)
+        details.add_child(_label("%s %s · %s" % ["Pet" if info["category"] == "pet" else "Helper", info["name"], GameData.rank_name(character["tier"])], 16))
+        details.add_child(_label("%s · %d/%d slots · %s" % [GameData.SYSTEM_NAMES[GameData.SYSTEMS.find(info["system"])], character["books"].size() + int(character["foreign"] != ""), GameData.slots(character["tier"]), "Room %d" % (game.room_for(id) + 1) if game.room_for(id) >= 0 else "Unassigned"], 12))
         var row := _row(box)
         row.add_child(_button("Details", "_show_character", [id], Color("c7dbea")))
         if character["tier"] < 26:
@@ -207,7 +235,7 @@ func _render_gacha() -> void:
         var banner := GameData.banner(banner_id)
         var box := _card(body, Color("ebe7f6") if banner["currency"] == "crystal" else Color("fff0d7"))
         box.add_child(_label(banner_id.replace("_", " ").capitalize(), 18))
-        box.add_child(_label("%s per paid pull · 10→11 · 100→111" % _amount(banner["price"]), 13))
+        box.add_child(_label("%s %s per paid pull · 10→11 · 100→111" % [_amount(banner["price"]), banner["currency"]], 13))
         var row := _row(box)
         for paid in [1, 10, 100]:
             var button := _button("×%d" % paid, "_pull_gacha", [banner_id, paid], Color("f7c9a7"))
@@ -217,6 +245,7 @@ func _render_gacha() -> void:
 func _render_shop() -> void:
     body.add_child(_label("Skill book shop", 21))
     body.add_child(_label("PROVISIONAL: books cost their own system resource. Four identical books grant the full effect. Pet books boost output; helper books boost cooldown reduction.", 13))
+    body.add_child(_label("Identical copies in 1/2/3/4 slots: 10% / 30% / 60% / 100% of full effect.", 13))
     for i in GameData.SYSTEMS.size():
         var system: String = GameData.SYSTEMS[i]
         var box := _card(body, GameData.SYSTEM_COLORS[i].lightened(0.72))
@@ -225,6 +254,10 @@ func _render_shop() -> void:
         row.add_child(_button("Pet book", "_buy_book", ["pet", system], Color("f7c8a5")))
         row.add_child(_button("Helper book", "_buy_book", ["employee", system], Color("c5dcf4")))
     body.add_child(_label("Owned books: %d" % game.books.size(), 14))
+    for book_id in game.books:
+        var book = game.books[book_id]
+        var owner: String = book["equipped_by"]
+        body.add_child(_label("%s · %s %s · %s" % [book_id, book["system"], book["category"], _character_name(owner) if owner != "" else "Available"], 12))
 
 func _render_collection() -> void:
     body.add_child(_label("Collection", 21))
@@ -248,6 +281,9 @@ func _change_page(target: String) -> void:
 
 func _feedback(message: String) -> void:
     status.text = message
+    var feedback_tween := create_tween()
+    feedback_tween.tween_property(status, "modulate:a", 0.5, 0.1)
+    feedback_tween.tween_property(status, "modulate:a", 1.0, 0.2)
     _render()
 
 func _save() -> void:
@@ -323,7 +359,7 @@ func _merge_prompt(id: String) -> void:
     matching_ids.erase(id)
     matching_ids.push_front(id)
     _show_options("Merge %d copies into %s" % [needed, GameData.rank_name(character["tier"] + 1)], [
-        {"label": "Merge and return equipped books", "method": "_merge", "args": [matching_ids.slice(0, needed)]}
+        {"label": "Merge · return books and clear affected rooms", "method": "_merge", "args": [matching_ids.slice(0, needed)]}
     ])
 
 func _merge(ids: Array) -> void:
@@ -340,15 +376,17 @@ func _show_character(id: String) -> void:
     var character = game.characters[id]
     var info := GameData.identity_info(character["identity"])
     var options := []
-    var details := "System: %s\nRank: %s · slots %d\nNative books: %d/4\nForeign skill: %s\n" % [info["system"], GameData.rank_name(character["tier"]), GameData.slots(character["tier"]), character["books"].size(), character["foreign"] if character["foreign"] != "" else "none"]
+    var details := "System: %s\nRank: %s · slots %d\nNative books: %d/4\nForeign skill: %s\n" % [info["system"], GameData.rank_name(character["tier"]), GameData.slots(character["tier"]), game.book_count(character, info["system"]), character["foreign"] if character["foreign"] != "" else "none"]
+    if character["foreign"] != "":
+        details += "Foreign slots: %d/4 (includes collection skill)\nForeign books affect only their own resource system.\n" % (game.book_count(character, character["foreign"]) + 1)
     if info["category"] == "pet":
         details += "Book stack bonus: +%.0f%% output\n" % (game._book_bonus(character) * 100.0)
     else:
         details += "Book stack bonus: +%.0f%% reduction\n" % (game._book_bonus(character) * 100.0)
     for book_id in game.books:
         var book = game.books[book_id]
-        if book["equipped_by"] == "" and book["category"] == info["category"] and book["system"] == info["system"]:
-            options.append({"label": "Equip book " + book_id, "method": "_equip_book", "args": [id, book_id]})
+        if book["equipped_by"] == "" and book["category"] == info["category"] and (book["system"] == info["system"] or book["system"] == character["foreign"]):
+            options.append({"label": "Equip %s book %s" % [book["system"], book_id], "method": "_equip_book", "args": [id, book_id]})
     for book_id in character["books"]:
         options.append({"label": "Unequip book " + book_id, "method": "_unequip_book", "args": [book_id]})
     if character["foreign"] == "":
@@ -361,6 +399,7 @@ func _show_character(id: String) -> void:
 
 func _equip_book(character_id: String, book_id: String) -> void:
     _close_overlay()
+    _sync_and_save()
     var error := game.equip_book(character_id, book_id)
     if error == "":
         _save()
@@ -368,6 +407,7 @@ func _equip_book(character_id: String, book_id: String) -> void:
 
 func _unequip_book(book_id: String) -> void:
     _close_overlay()
+    _sync_and_save()
     var error := game.unequip_book(book_id)
     if error == "":
         _save()
@@ -375,6 +415,7 @@ func _unequip_book(book_id: String) -> void:
 
 func _equip_collection(character_id: String, system: String) -> void:
     _close_overlay()
+    _sync_and_save()
     var error := game.equip_collection(character_id, system)
     if error == "":
         _save()
@@ -382,6 +423,7 @@ func _equip_collection(character_id: String, system: String) -> void:
 
 func _unequip_collection(character_id: String) -> void:
     _close_overlay()
+    _sync_and_save()
     var error := game.unequip_collection(character_id)
     if error == "":
         _save()

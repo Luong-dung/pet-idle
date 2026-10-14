@@ -46,6 +46,11 @@ func room_for(character_id: String) -> int:
             return i
     return -1
 
+func _reset_progress_for(character_id: String) -> void:
+    var index := room_for(character_id)
+    if index >= 0:
+        rooms[index]["progress"] = 0.0
+
 func assign(room_index: int, category: String, character_id: String) -> String:
     if room_index < 0 or room_index >= rooms.size() or not (category in ["pet", "employee"]):
         return "Invalid room or role"
@@ -95,11 +100,22 @@ func matching(room: Dictionary) -> bool:
     var employee := GameData.identity_info(characters[room["employee"]]["identity"])
     return pet["system"] == employee["system"] and pet["index"] == employee["index"]
 
-func _book_bonus(character: Dictionary) -> float:
+func book_count(character: Dictionary, system: String) -> int:
+    var count := 0
+    for book_id in character["books"]:
+        if books.has(book_id) and books[book_id]["system"] == system:
+            count += 1
+    return count
+
+func _book_bonus(character: Dictionary, target_system: String = "") -> float:
+    if target_system == "":
+        target_system = GameData.identity_info(character["identity"])["system"]
     var counts := {}
     for book_id in character["books"]:
         if books.has(book_id):
             var book = books[book_id]
+            if book["system"] != target_system:
+                continue
             var key: String = "%s_%s" % [book["category"], book["system"]]
             counts[key] = int(counts.get(key, 0)) + 1
     var bonus := 0.0
@@ -113,7 +129,7 @@ func production(room: Dictionary) -> Dictionary:
     var pet = characters[room["pet"]]
     var pet_info := GameData.identity_info(pet["identity"])
     var pair := matching(room)
-    var output_bonus: float = _book_bonus(pet)
+    var output_bonus: float = _book_bonus(pet, pet_info["system"])
     if pet["foreign"] != "":
         output_bonus += 0.5
     if pair:
@@ -123,7 +139,7 @@ func production(room: Dictionary) -> Dictionary:
     if room["employee"] != "" and characters.has(room["employee"]):
         var employee = characters[room["employee"]]
         var reduction: float = 10.0 * pow(1.1, employee["tier"])
-        var reduction_bonus: float = _book_bonus(employee)
+        var reduction_bonus: float = _book_bonus(employee, pet_info["system"])
         if employee["foreign"] != "":
             reduction_bonus += 0.5
         cycle -= reduction * (1.0 + reduction_bonus)
@@ -231,14 +247,18 @@ func equip_book(character_id: String, book_id: String) -> String:
     var info := GameData.identity_info(character["identity"])
     if book["equipped_by"] != "":
         return "Book is already equipped"
-    if book["category"] != info["category"] or book["system"] != info["system"]:
-        return "Regular books must match role and native system"
+    if book["category"] != info["category"]:
+        return "Book must match character role"
+    if book["system"] != info["system"] and book["system"] != character["foreign"]:
+        return "Unlock and equip this foreign collection system first"
     if character["books"].size() + int(character["foreign"] != "") >= GameData.slots(character["tier"]):
         return "No free skill slot"
-    if character["books"].size() >= 4:
-        return "Maximum four books per system"
+    var system_count := book_count(character, book["system"])
+    if system_count + int(book["system"] == character["foreign"]) >= 4:
+        return "Maximum four occupied slots per system"
     character["books"].append(book_id)
     book["equipped_by"] = character_id
+    _reset_progress_for(character_id)
     return ""
 
 func unequip_book(book_id: String) -> String:
@@ -250,6 +270,7 @@ func unequip_book(book_id: String) -> String:
     if characters.has(owner):
         characters[owner]["books"].erase(book_id)
     books[book_id]["equipped_by"] = ""
+    _reset_progress_for(owner)
     return ""
 
 func equip_collection(character_id: String, system: String) -> String:
@@ -264,12 +285,18 @@ func equip_collection(character_id: String, system: String) -> String:
     if character["books"].size() >= GameData.slots(character["tier"]):
         return "No free skill slot"
     character["foreign"] = system
+    _reset_progress_for(character_id)
     return ""
 
 func unequip_collection(character_id: String) -> String:
     if not characters.has(character_id) or characters[character_id]["foreign"] == "":
         return "No collection skill equipped"
+    var foreign: String = characters[character_id]["foreign"]
+    for book_id in characters[character_id]["books"].duplicate():
+        if books[book_id]["system"] == foreign:
+            unequip_book(book_id)
     characters[character_id]["foreign"] = ""
+    _reset_progress_for(character_id)
     return ""
 
 func to_dict() -> Dictionary:
@@ -286,24 +313,33 @@ func save_game() -> String:
     file.store_string(JSON.stringify(to_dict()))
     file.flush()
     file.close()
+    if FileAccess.file_exists(path):
+        DirAccess.copy_absolute(path, path + ".bak")
     var error := DirAccess.rename_absolute(temp, path)
     return "" if error == OK else "Could not replace save file (%d)" % error
 
 static func load_game() -> GameState:
-    if not FileAccess.file_exists(SAVE_PATH):
-        return new_game()
-    var file := FileAccess.open(SAVE_PATH, FileAccess.READ)
-    if file == null:
-        return new_game()
-    var parser := JSON.new()
-    if parser.parse(file.get_as_text()) != OK:
-        return new_game()
-    var game := from_dict(parser.data)
+    var game := _read_save(SAVE_PATH)
+    if game == null:
+        game = _read_save(SAVE_PATH + ".bak")
+        if game != null:
+            DirAccess.copy_absolute(ProjectSettings.globalize_path(SAVE_PATH + ".bak"), ProjectSettings.globalize_path(SAVE_PATH))
     if game == null:
         return new_game()
     game.catch_up(Time.get_unix_time_from_system())
     game.rng.randomize()
     return game
+
+static func _read_save(path: String) -> GameState:
+    if not FileAccess.file_exists(path):
+        return null
+    var file := FileAccess.open(path, FileAccess.READ)
+    if file == null:
+        return null
+    var parser := JSON.new()
+    if parser.parse(file.get_as_text()) != OK:
+        return null
+    return from_dict(parser.data)
 
 static func from_dict(data: Variant) -> GameState:
     if not (data is Dictionary) or data.get("version") != SAVE_VERSION:
@@ -335,8 +371,15 @@ static func from_dict(data: Variant) -> GameState:
     for category in ["pet", "employee"]:
         if not game.collections.has(category) or not (game.collections[category] is Dictionary):
             return null
+        for system in game.collections[category]:
+            if not (system in GameData.SYSTEMS) or game.collections[category][system] != true:
+                return null
+    var highest_id := 0
     for id in game.characters:
         var character = game.characters[id]
+        if not (id is String) or not id.begins_with("c") or not id.substr(1).is_valid_int():
+            return null
+        highest_id = maxi(highest_id, int(id.substr(1)))
         if not (character is Dictionary) or not character.has_all(["identity", "tier", "books", "foreign"]):
             return null
         if not (character["identity"] is String) or GameData.identity_info(character["identity"]).is_empty():
@@ -344,10 +387,17 @@ static func from_dict(data: Variant) -> GameState:
         if not _whole_number(character["tier"]) or character["tier"] < 0 or character["tier"] > 26:
             return null
         character["tier"] = int(character["tier"])
+        var info := GameData.identity_info(character["identity"])
+        if not game.collections[info["category"]].has(info["system"]):
+            return null
     var assigned := {}
+    var room_ids := {}
     for room in game.rooms:
         if not (room is Dictionary) or not room.has_all(["id", "pet", "employee", "progress"]):
             return null
+        if not (room["id"] is String) or room["id"] == "" or room_ids.has(room["id"]):
+            return null
+        room_ids[room["id"]] = true
         if not (room["progress"] is float or room["progress"] is int) or not is_finite(float(room["progress"])) or room["progress"] < 0:
             return null
         for role in ["pet", "employee"]:
@@ -376,23 +426,42 @@ static func from_dict(data: Variant) -> GameState:
         var info := GameData.identity_info(character["identity"])
         if info.is_empty() or not (character["books"] is Array) or not (character["foreign"] is String):
             return null
-        if character["books"].size() > 4 or character["books"].size() + int(character["foreign"] != "") > GameData.slots(character["tier"]):
+        if character["books"].size() > 8 or character["books"].size() + int(character["foreign"] != "") > GameData.slots(character["tier"]):
             return null
         if character["foreign"] != "" and (character["foreign"] == info["system"] or not game.collections[info["category"]].has(character["foreign"])):
             return null
+        var native_count := 0
+        var foreign_count := int(character["foreign"] != "")
         for book_id in character["books"]:
             if equipped.has(book_id) or not game.books.has(book_id):
                 return null
             equipped[book_id] = id
             var book = game.books[book_id]
-            if book.get("category") != info["category"] or book.get("system") != info["system"] or book.get("equipped_by") != id:
+            if not (book is Dictionary):
                 return null
+            if book.get("category") != info["category"] or book.get("equipped_by") != id:
+                return null
+            if book.get("system") == info["system"]:
+                native_count += 1
+            elif book.get("system") == character["foreign"]:
+                foreign_count += 1
+            else:
+                return null
+        if native_count > 4 or foreign_count > 4:
+            return null
     for id in game.books:
         var book = game.books[id]
-        if not (book is Dictionary) or not (book.get("category") in ["pet", "employee"]) or not (book.get("system") in GameData.SYSTEMS):
+        if not (id is String) or not id.begins_with("b") or not id.substr(1).is_valid_int():
+            return null
+        highest_id = maxi(highest_id, int(id.substr(1)))
+        if not (book is Dictionary) or not book.has_all(["id", "category", "system", "equipped_by"]):
+            return null
+        if not (book["equipped_by"] is String) or not (book["category"] in ["pet", "employee"]) or not (book["system"] in GameData.SYSTEMS):
             return null
         if book.get("equipped_by", "") != "" and equipped.get(id, "") != book["equipped_by"]:
             return null
+    if game.next_id <= highest_id:
+        return null
     return game
 
 static func _whole_number(value: Variant) -> bool:
