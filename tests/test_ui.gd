@@ -75,18 +75,39 @@ func _run() -> void:
     check(main.game.draw("vip_pet", 1)["error"] == UI.t("error.insufficient_resource", [UI.system_name("crystal")]), "gacha error translated")
     check(main.game.buy_book("pet", "gold")["error"] == UI.t("error.insufficient_resource", [UI.system_name("gold")]), "shop error translated")
     var pet_id: String = main.game.add_character("pet_crystal_0", 0)
+    var duplicate_pet: String = main.game.add_character("pet_crystal_0", 0)
+    var high_pet: String = main.game.add_character("pet_crystal_1", 20)
     var employee_id: String = main.game.add_character("employee_gold_0", 0)
     main._change_page("characters")
     await process_frame
     check(main.character_tabs.visible and main.character_tabs.get_parent() != main.content_scroll, "character tabs stay outside scroll")
     check(main.character_tabs.get_global_rect().end.y <= main.content_scroll.get_global_rect().position.y + 1.0, "tabs remain above scrolling list")
+    check(main.character_filters.visible and main.character_filters.get_parent() != main.content_scroll, "rank and system filters stay above list")
     check(main._character_ids("pet").has(pet_id) and not main._character_ids("pet").has(employee_id), "pet category filter")
+    check(main._character_ids("pet")[0] == high_pet, "character cards use descending rank")
     check(_has_text_containing(main.body, GameData.identity_info(main.game.characters[pet_id]["identity"])["name"]), "pet card rendered")
     check(_has_text_containing(main.body, "◆ " + UI.system_name("crystal")), "pet card shows resource icon and name")
+    check(_has_text_containing(main.body, UI.t("characters.copies", [2, 2, 2])), "card shows owned and exact-rank duplicate counts")
+    main._set_character_system_filter(2)
+    await process_frame
+    check(main._character_ids("pet", main.character_system_filter, main.character_tier_filter).size() == 3, "character system filter narrows list")
+    main._set_character_tier_filter(21)
+    await process_frame
+    check(main._character_ids("pet", main.character_system_filter, main.character_tier_filter) == [high_pet], "character rank filter selects exact tier")
+    check(not _has_text_containing(main.body, GameData.identity_info(main.game.characters[pet_id]["identity"])["name"]), "filtered cards exclude other ranks")
+    main._set_character_tier_filter(0)
+    main._set_character_system_filter(0)
+    await process_frame
+    check(main.character_system_filter == "" and main.character_tier_filter == -1, "character filters can be cleared")
     check(_has_text(main.body, UI.t("category.pet")), "pet tab content rendered")
+    main._merge_all_prompt("pet")
+    await process_frame
+    check(main.overlay.visible and _has_text_containing(main.overlay, UI.t("merge.all_confirm")), "batch merge asks for confirmation")
+    main._close_overlay()
     main._select_character_category("employee")
     await process_frame
     check(main._character_ids("employee") == [employee_id], "employee category filter")
+    check(main.character_system_filter == "" and main.character_tier_filter == -1, "switching tabs clears prior filters")
     check(_has_text_containing(main.body, GameData.identity_info(main.game.characters[employee_id]["identity"])["name"]), "employee card rendered immediately")
     check(_has_text_containing(main.body, "✦ " + UI.system_name("gold")), "employee card shows resource icon and name")
     check(not _has_text_containing(main.body, GameData.identity_info(main.game.characters[pet_id]["identity"])["name"]), "employee tab excludes pets")
@@ -94,10 +115,23 @@ func _run() -> void:
     main._render()
     await process_frame
     check(_has_text(main.body, UI.t("characters.empty_employee")), "empty employee state")
+    var high_employee: String = main.game.add_character("employee_crystal_0", 20)
+    var low_employee: String = main.game.add_character("employee_gold_0", 0)
+    main._render()
+    main._set_character_system_filter(2)
+    main._set_character_tier_filter(21)
+    await process_frame
+    check(main._character_ids("employee", main.character_system_filter, main.character_tier_filter) == [high_employee], "employee list filters by system and rank")
+    check(not _has_text_containing(main.body, GameData.identity_info(main.game.characters[low_employee]["identity"])["name"]), "employee filter hides other systems")
+    main.game.characters.erase(high_employee)
+    main.game.characters.erase(low_employee)
+    main._set_character_system_filter(0)
+    main._set_character_tier_filter(0)
+    await process_frame
     check(main.content_scroll.scroll_deadzone >= 10, "main touch scroll deadzone")
     var all_scrolls := []
     for node in _descendants(main):
-        if node is ScrollContainer:
+        if node is ScrollContainer and node.is_visible_in_tree():
             all_scrolls.append(node)
     check(all_scrolls.size() == 1, "single page scroll container")
     for node in _descendants(main.body):
@@ -114,13 +148,30 @@ func _run() -> void:
     check(popup_scrolls.size() == 1 and popup_scrolls[0].scroll_deadzone >= 10, "popup touch scroll deadzone")
     check(_has_text_containing(main.overlay, "◆ " + UI.system_name("crystal")), "selection dialog shows resource name and icon")
     check(not _has_text_containing(main.overlay, GameData.EMPLOYEE_NAMES[0][0]), "pet selection excludes employees")
+    var ordered_choices := []
+    for node in _descendants(main.overlay):
+        if node is Button and not node is OptionButton and node.text.contains("["):
+            ordered_choices.append(node.text)
+    check(not ordered_choices.is_empty() and ordered_choices[0].contains(GameData.rank_name(20)), "room picker sorts highest rank first")
+    main._set_picker_system_filter(2)
+    main._set_picker_tier_filter(21)
+    await process_frame
+    check(_has_text_containing(main.overlay, GameData.identity_info(main.game.characters[high_pet]["identity"])["name"]), "room picker filters by system and exact rank")
+    check(not _has_text_containing(main.overlay, GameData.identity_info(main.game.characters[pet_id]["identity"])["name"]), "room picker hides other ranks")
     main._close_overlay()
     check(not main.overlay.visible, "assignment dialog closes")
     main.game.add_character("employee_gold_0", 0)
     main._choose_character(0, "employee")
     await process_frame
+    check(main.picker_system_filter == "" and main.picker_tier_filter == -1, "picker filters reset for the other role")
     check(_has_text_containing(main.overlay, "✦ " + UI.system_name("gold")), "employee selection shows resource name and icon")
     check(not _has_text_containing(main.overlay, GameData.identity_info(main.game.characters[pet_id]["identity"])["name"]), "employee selection excludes pets")
+    main._set_picker_system_filter(2)
+    await process_frame
+    check(_has_text(main.overlay, UI.t("assignment.empty_filter")), "picker shows empty filtered state")
+    main._set_picker_system_filter(1)
+    await process_frame
+    check(_has_text_containing(main.overlay, GameData.EMPLOYEE_NAMES[0][0]), "employee picker can restore matching system")
     main._close_overlay()
     main._show_character(pet_id)
     await process_frame
@@ -164,7 +215,7 @@ func _run() -> void:
     await process_frame
     var card_button: Button = null
     for node in _descendants(main.body):
-        if node is Button:
+        if node is Button and node.text == UI.t("characters.details"):
             card_button = node
             break
     if card_button != null:
@@ -196,6 +247,15 @@ func _run() -> void:
         await process_frame
         check(received_drag[0], "touch drag over card button reaches scroll container")
         check(not main.overlay.visible, "swipe over card button does not tap")
+    var expected_merges: int = main.game.merge_all_preview("pet")
+    var before_merge: int = main.game.character_ids("pet").size()
+    main._merge_all_prompt("pet")
+    await process_frame
+    check(main.overlay.visible and expected_merges > 0, "batch merge confirmation opens for eligible copies")
+    main._merge_all("pet")
+    await process_frame
+    check(not main.overlay.visible and main.game.character_ids("pet").size() < before_merge and main.status.text == UI.t("merge.all_complete", [expected_merges]), "batch merge action reports expected merge count")
+    check(main.game.merge_all_preview("pet") == 0, "batch merge action reaches stable inventory")
     print("UI TESTS: %d checks, %d failures" % [checks, failures])
     quit(0 if failures == 0 else 1)
 

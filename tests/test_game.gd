@@ -97,6 +97,60 @@ func run_tests() -> void:
     check(sss_result["error"] == "" and rank_game.characters[sss_result["id"]]["tier"] == 24, "SS+ merges to SSS-")
     check(rank_game.merge([rank_game.add_character("pet_gold_0", 26), rank_game.add_character("pet_gold_0", 26), rank_game.add_character("pet_gold_0", 26)])["error"] != "", "SSS+ cannot merge")
 
+    var query_game := GameState.new_game()
+    var low_crystal := query_game.add_character("pet_crystal_0", 1)
+    var high_crystal := query_game.add_character("pet_crystal_0", 20)
+    var top_gold := query_game.add_character("pet_gold_1", 26)
+    var query_employee := query_game.add_character("employee_gold_0", 24)
+    check(query_game.character_ids("pet")[0] == top_gold and query_game.character_ids("pet")[1] == high_crystal, "inventory sorts highest rank first")
+    check(query_game.character_ids("pet", "crystal") == [high_crystal, low_crystal], "system filter retains descending rank")
+    check(query_game.character_ids("pet", "crystal", 20) == [high_crystal], "exact tier and system filter")
+    check(query_game.character_ids("employee") == [query_employee], "category filter excludes pets")
+    check(query_game.character_ids("pet", "unknown").is_empty() and query_game.character_ids("pet", "", 27).is_empty(), "invalid filters return no copies")
+    var query_clone := GameState.from_dict(JSON.parse_string(JSON.stringify(query_game.to_dict())))
+    check(query_clone.character_ids("pet", "crystal") == [high_crystal, low_crystal], "sorted filtering survives save round trip")
+
+    var bulk := GameState.new_game()
+    for n in 11:
+        bulk.add_character("pet_gold_0", 0)
+    var employee_a := bulk.add_character("employee_gold_0", 0)
+    var employee_b := bulk.add_character("employee_gold_0", 0)
+    check(bulk.merge_all_preview("pet") == 10 and bulk.merge_all_preview("employee") == 1, "batch preview includes cascading merges per category")
+    check(bulk.merge_all_preview("bad") == 0 and bulk.merge_all("bad")["error"] != "", "invalid batch category rejected")
+    var bulk_result := bulk.merge_all("pet")
+    check(bulk_result["error"] == "" and bulk_result["count"] == 10, "batch merge cascades F- to E-")
+    var bulk_pet: String = bulk.rooms[0]["pet"]
+    check(bulk_pet != "" and bulk.characters[bulk_pet]["identity"] == "pet_gold_0" and bulk.characters[bulk_pet]["tier"] == 3, "batch merge preserves assigned upgraded pet")
+    check(bulk.character_ids("pet").size() == 1 and bulk.characters.has(employee_a) and bulk.characters.has(employee_b), "batch merge leaves employee inventory alone")
+    check(bulk.merge_all_preview("pet") == 0 and bulk.merge_all("pet")["count"] == 0, "batch merge is idempotent without copies")
+    check(bulk.merge_all("employee")["count"] == 1, "employee batch merge remains separate")
+    check(GameState.from_dict(JSON.parse_string(JSON.stringify(bulk.to_dict()))) != null, "batch merge leaves a valid save")
+
+    var equipped_game := GameState.new_game()
+    var working_pet := equipped_game.add_character("pet_gold_1", 3)
+    var spare_pet := equipped_game.add_character("pet_gold_1", 3)
+    var working_employee := equipped_game.add_character("employee_gold_1", 0)
+    check(equipped_game.assign(1, "pet", working_pet) == "" and equipped_game.assign(1, "employee", working_employee) == "", "batch fixture has working matching pair")
+    equipped_game.balances["gold"] = 1000.0
+    var equipped_book: String = equipped_game.buy_book("pet", "gold")["id"]
+    check(equipped_game.equip_book(spare_pet, equipped_book) == "", "batch fixture has equipped spare")
+    check(equipped_game.merge_all_preview("pet") == 1 and equipped_game.merge_all("pet")["count"] == 1, "batch merges equipped duplicate")
+    check(equipped_game.books[equipped_book]["equipped_by"] == "", "batch returns equipped book")
+    check(equipped_game.rooms[1]["pet"] != "" and equipped_game.rooms[1]["employee"] == working_employee and equipped_game.characters[equipped_game.rooms[1]["pet"]]["tier"] == 4, "batch preserves compatible room pair")
+    check(GameState.from_dict(JSON.parse_string(JSON.stringify(equipped_game.to_dict()))) != null, "equipped batch save remains valid")
+
+    var manual_room := GameState.new_game()
+    var manual_spare := manual_room.add_character("pet_gold_1", 0)
+    var manual_assigned := manual_room.add_character("pet_gold_1", 0)
+    var manual_employee := manual_room.add_character("employee_gold_1", 0)
+    check(manual_room.assign(1, "pet", manual_assigned) == "" and manual_room.assign(1, "employee", manual_employee) == "", "manual merge fixture has assigned pair")
+    var manual_result := manual_room.merge([manual_spare, manual_assigned])
+    check(manual_result["error"] == "" and manual_room.rooms[1]["pet"] == manual_result["id"] and manual_room.rooms[1]["employee"] == manual_employee, "manual merge preserves assigned pair regardless of copy order")
+    var capped := GameState.new_game()
+    for n in 3:
+        capped.add_character("pet_gold_2", 26)
+    check(capped.merge_all_preview("pet") == 0 and capped.merge_all("pet")["count"] == 0, "batch merge respects maximum rank")
+
     for banner_id in ["normal_pet", "normal_employee", "vip_pet", "vip_employee"]:
         var banner := GameData.banner(banner_id)
         var weight_sum := 0

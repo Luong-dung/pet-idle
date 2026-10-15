@@ -47,6 +47,33 @@ func room_for(character_id: String) -> int:
             return i
     return -1
 
+func character_ids(category: String, system: String = "", tier: int = -1) -> Array:
+    if not (category in ["pet", "employee"]) or (system != "" and not (system in GameData.SYSTEMS)) or tier < -1 or tier > 26:
+        return []
+    var ids := []
+    for id in characters:
+        var character: Dictionary = characters[id]
+        var info := GameData.identity_info(character["identity"])
+        if info["category"] == category and (system == "" or info["system"] == system) and (tier == -1 or character["tier"] == tier):
+            ids.append(id)
+    ids.sort_custom(Callable(self, "_character_before"))
+    return ids
+
+func _character_before(a: String, b: String) -> bool:
+    var first: Dictionary = characters[a]
+    var second: Dictionary = characters[b]
+    if first["tier"] != second["tier"]:
+        return first["tier"] > second["tier"]
+    var first_info := GameData.identity_info(first["identity"])
+    var second_info := GameData.identity_info(second["identity"])
+    var first_system := GameData.SYSTEMS.find(first_info["system"])
+    var second_system := GameData.SYSTEMS.find(second_info["system"])
+    if first_system != second_system:
+        return first_system < second_system
+    if first_info["index"] != second_info["index"]:
+        return first_info["index"] < second_info["index"]
+    return int(a.substr(1)) < int(b.substr(1))
+
 func _reset_progress_for(character_id: String) -> void:
     var index := room_for(character_id)
     if index >= 0:
@@ -212,7 +239,12 @@ func merge(ids: Array) -> Dictionary:
         var current = characters[id]
         if current["identity"] != first["identity"] or current["tier"] != tier:
             return {"error": UI.t("error.copies_mismatch")}
-    var room_index := room_for(ids[0])
+    var room_index := -1
+    for id in ids:
+        room_index = room_for(id)
+        if room_index >= 0:
+            break
+    var companion_id: String = rooms[room_index]["employee"] if room_index >= 0 and GameData.identity_info(first["identity"])["category"] == "pet" else ""
     for id in ids:
         var character = characters[id]
         for book_id in character["books"]:
@@ -229,7 +261,72 @@ func merge(ids: Array) -> Dictionary:
     var result_id := add_character(first["identity"], tier + 1)
     if room_index >= 0:
         assign(room_index, GameData.identity_info(first["identity"])["category"], result_id)
+        if companion_id != "" and characters.has(companion_id):
+            assign(room_index, "employee", companion_id)
     return {"error": "", "id": result_id}
+
+func merge_all_preview(category: String) -> int:
+    if not (category in ["pet", "employee"]):
+        return 0
+    var copies := {}
+    for id in character_ids(category):
+        var character: Dictionary = characters[id]
+        var identity: String = character["identity"]
+        if not copies.has(identity):
+            var tiers := []
+            tiers.resize(27)
+            tiers.fill(0)
+            copies[identity] = tiers
+        copies[identity][character["tier"]] += 1
+    var count := 0
+    for tiers in copies.values():
+        for tier in 26:
+            var needed := 3 if tier % 3 == 2 else 2
+            var merges: int = int(tiers[tier]) / needed
+            tiers[tier + 1] += merges
+            count += merges
+    return count
+
+func merge_all(category: String) -> Dictionary:
+    if not (category in ["pet", "employee"]):
+        return {"error": UI.t("error.invalid_merge_category"), "count": 0}
+    var count := 0
+    for tier in 26:
+        var needed := 3 if tier % 3 == 2 else 2
+        for system in GameData.SYSTEMS:
+            for index in 3:
+                var identity := GameData.identity(category, system, index)
+                while true:
+                    var assigned := []
+                    var plain := []
+                    var equipped := []
+                    for id in character_ids(category, system, tier):
+                        var character: Dictionary = characters[id]
+                        if character["identity"] != identity:
+                            continue
+                        if room_for(id) >= 0:
+                            assigned.append(id)
+                        elif character["books"].is_empty() and character["foreign"] == "":
+                            plain.append(id)
+                        else:
+                            equipped.append(id)
+                    if assigned.size() + plain.size() + equipped.size() < needed:
+                        break
+                    var selected := []
+                    if not assigned.is_empty():
+                        selected.append(assigned.pop_front())
+                    elif not plain.is_empty():
+                        selected.append(plain.pop_front())
+                    else:
+                        selected.append(equipped.pop_front())
+                    for group in [plain, equipped, assigned]:
+                        while selected.size() < needed and not group.is_empty():
+                            selected.append(group.pop_front())
+                    var result := merge(selected)
+                    if result["error"] != "":
+                        return {"error": result["error"], "count": count}
+                    count += 1
+    return {"error": "", "count": count}
 
 func buy_book(category: String, system: String) -> Dictionary:
     if not (category in ["pet", "employee"]) or not (system in GameData.SYSTEMS):

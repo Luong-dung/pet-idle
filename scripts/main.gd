@@ -8,7 +8,14 @@ var page := "rooms"
 var body: VBoxContainer
 var content_scroll: ScrollContainer
 var character_tabs: HBoxContainer
+var character_filters: HBoxContainer
 var character_category := "pet"
+var character_system_filter := ""
+var character_tier_filter := -1
+var picker_room := -1
+var picker_category := ""
+var picker_system_filter := ""
+var picker_tier_filter := -1
 var balances_panel: GridContainer
 var overlay: ColorRect
 var status: Label
@@ -155,6 +162,9 @@ func _build_shell() -> void:
     character_tabs = HBoxContainer.new()
     character_tabs.add_theme_constant_override("separation", 6)
     root.add_child(character_tabs)
+    character_filters = HBoxContainer.new()
+    character_filters.add_theme_constant_override("separation", 6)
+    root.add_child(character_filters)
     content_scroll = ScrollContainer.new()
     content_scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
     content_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
@@ -180,8 +190,10 @@ func _render() -> void:
     for child in body.get_children():
         child.queue_free()
     character_tabs.visible = page == "characters"
+    character_filters.visible = character_tabs.visible
     if character_tabs.visible:
         _render_character_tabs()
+        _render_character_filters()
     match page:
         "rooms": _render_rooms()
         "characters": _render_characters()
@@ -217,12 +229,35 @@ func _system_label(system: String) -> String:
     var index := GameData.SYSTEMS.find(system)
     return "%s %s" % [GameData.SYSTEM_ICONS[index], UI.system_name(system)] if index >= 0 else UI.t("common.none")
 
-func _character_ids(category: String) -> Array:
-    var ids := []
-    for id in game.characters:
-        if GameData.identity_info(game.characters[id]["identity"])["category"] == category:
-            ids.append(id)
-    return ids
+func _character_ids(category: String, system: String = "", tier: int = -1) -> Array:
+    return game.character_ids(category, system, tier)
+
+func _filter_option() -> OptionButton:
+    var option := OptionButton.new()
+    option.custom_minimum_size.y = 44
+    option.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+    option.mouse_filter = Control.MOUSE_FILTER_PASS
+    option.add_theme_stylebox_override("normal", _style(Color("e9dfef"), 12))
+    option.add_theme_stylebox_override("hover", _style(Color("f1e9f5"), 12))
+    option.add_theme_color_override("font_color", INK)
+    option.add_theme_font_size_override("font_size", 13)
+    return option
+
+func _add_filter_controls(row: HBoxContainer, system: String, tier: int, system_method: String, tier_method: String) -> void:
+    var systems := _filter_option()
+    systems.add_item(UI.t("filter.all_systems"))
+    for value in GameData.SYSTEMS:
+        systems.add_item(_system_label(value))
+    systems.select(GameData.SYSTEMS.find(system) + 1)
+    systems.item_selected.connect(Callable(self, system_method))
+    row.add_child(systems)
+    var ranks := _filter_option()
+    ranks.add_item(UI.t("filter.all_ranks"))
+    for value in 27:
+        ranks.add_item(GameData.rank_name(value))
+    ranks.select(tier + 1)
+    ranks.item_selected.connect(Callable(self, tier_method))
+    row.add_child(ranks)
 
 func _render_character_tabs() -> void:
     for child in character_tabs.get_children():
@@ -232,10 +267,27 @@ func _render_character_tabs() -> void:
         button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
         character_tabs.add_child(button)
 
+func _render_character_filters() -> void:
+    for child in character_filters.get_children():
+        child.queue_free()
+    _add_filter_controls(character_filters, character_system_filter, character_tier_filter, "_set_character_system_filter", "_set_character_tier_filter")
+
+func _set_character_system_filter(index: int) -> void:
+    character_system_filter = "" if index == 0 else GameData.SYSTEMS[index - 1]
+    content_scroll.scroll_vertical = 0
+    _render()
+
+func _set_character_tier_filter(index: int) -> void:
+    character_tier_filter = index - 1
+    content_scroll.scroll_vertical = 0
+    _render()
+
 func _select_character_category(category: String) -> void:
     if category == character_category:
         return
     character_category = category
+    character_system_filter = ""
+    character_tier_filter = -1
     content_scroll.scroll_vertical = 0
     _render()
 
@@ -282,10 +334,24 @@ func _render_rooms() -> void:
     body.add_child(_button(UI.t("rooms.unlock", [_amount(GameData.room_cost(game.rooms.size() + 1))]), "_unlock_room", [], Color("f5d98c")))
 
 func _render_characters() -> void:
-    var ids := _character_ids(character_category)
-    body.add_child(_label(UI.t("characters.title", [ids.size()]), 21))
+    var all_ids := _character_ids(character_category)
+    var ids := _character_ids(character_category, character_system_filter, character_tier_filter)
+    body.add_child(_label(UI.t("characters.title", [ids.size(), all_ids.size()]), 21))
+    var merge_count := game.merge_all_preview(character_category)
+    var merge_button := _button(UI.t("merge.all_button", [UI.category_name(character_category), merge_count]), "_merge_all_prompt", [character_category], Color("f2c5d5"))
+    merge_button.disabled = merge_count == 0
+    body.add_child(merge_button)
+    var identity_counts := {}
+    var tier_counts := {}
+    for id in all_ids:
+        var owned: Dictionary = game.characters[id]
+        var identity: String = owned["identity"]
+        var key := "%s:%d" % [identity, owned["tier"]]
+        identity_counts[identity] = int(identity_counts.get(identity, 0)) + 1
+        tier_counts[key] = int(tier_counts.get(key, 0)) + 1
     if ids.is_empty():
-        body.add_child(_label(UI.t("characters.empty_pet" if character_category == "pet" else "characters.empty_employee"), 15))
+        var empty_key := "characters.empty_pet" if character_category == "pet" else "characters.empty_employee"
+        body.add_child(_label(UI.t(empty_key if all_ids.is_empty() else "characters.empty_filter"), 15))
     for id in ids:
         var character = game.characters[id]
         var info := GameData.identity_info(character["identity"])
@@ -299,6 +365,12 @@ func _render_characters() -> void:
         details.add_child(_label(UI.t("characters.name_rank", [UI.category_name(info["category"]), info["name"], GameData.rank_name(character["tier"])]), 16))
         var room_text := UI.t("common.room", [game.room_for(id) + 1]) if game.room_for(id) >= 0 else UI.t("common.unassigned")
         details.add_child(_label(UI.t("characters.summary", [_system_label(info["system"]), character["books"].size() + int(character["foreign"] != ""), GameData.slots(character["tier"]), room_text]), 12))
+        var copy_key := "%s:%d" % [character["identity"], character["tier"]]
+        var copies_key := "characters.copies_max" if character["tier"] == 26 else "characters.copies"
+        var copies_values := [identity_counts[character["identity"]], tier_counts[copy_key]]
+        if character["tier"] < 26:
+            copies_values.append(3 if character["tier"] % 3 == 2 else 2)
+        details.add_child(_label(UI.t(copies_key, copies_values), 12))
         var row := _row(box)
         row.add_child(_button(UI.t("characters.details"), "_show_character", [id], Color("c7dbea")))
         if character["tier"] < 26:
@@ -384,18 +456,30 @@ func _unlock_room() -> void:
     _feedback(UI.t("room.unlocked") if error == "" else error)
 
 func _choose_character(room_index: int, category: String) -> void:
+    if picker_room != room_index or picker_category != category:
+        picker_room = room_index
+        picker_category = category
+        picker_system_filter = ""
+        picker_tier_filter = -1
     var options := []
     if game.rooms[room_index][category] != "":
         options.append({"label": UI.t("assignment.remove"), "method": "_assign", "args": [room_index, category, ""]})
-    for id in game.characters:
+    var ids := _character_ids(category, picker_system_filter, picker_tier_filter)
+    for id in ids:
         var info := GameData.identity_info(game.characters[id]["identity"])
-        if info["category"] != category:
-            continue
         var label := "%s · %s" % [_character_name(id), _system_label(info["system"])]
         if game.room_for(id) >= 0 and game.rooms[room_index][category] != id:
             label += " · " + UI.t("common.assigned")
         options.append({"label": label, "method": "_assign", "args": [room_index, category, id]})
-    _show_options(UI.t("assignment.choose", [UI.category_name(category)]), options)
+    _show_options(UI.t("assignment.choose", [UI.category_name(category)]), options, UI.t("assignment.empty_filter") if ids.is_empty() else "", true)
+
+func _set_picker_system_filter(index: int) -> void:
+    picker_system_filter = "" if index == 0 else GameData.SYSTEMS[index - 1]
+    _choose_character(picker_room, picker_category)
+
+func _set_picker_tier_filter(index: int) -> void:
+    picker_tier_filter = index - 1
+    _choose_character(picker_room, picker_category)
 
 func _assign(room_index: int, category: String, id: String) -> void:
     _close_overlay()
@@ -452,6 +536,23 @@ func _merge(ids: Array) -> void:
     if result["error"] == "":
         _save()
     _feedback(UI.t("merge.complete", [_character_name(result["id"])]) if result["error"] == "" else result["error"])
+
+func _merge_all_prompt(category: String) -> void:
+    var count := game.merge_all_preview(category)
+    if count == 0:
+        _feedback(UI.t("merge.all_none"))
+        return
+    _show_options(UI.t("merge.all_title", [UI.category_name(category), count]), [
+        {"label": UI.t("merge.all_confirm"), "method": "_merge_all", "args": [category]}
+    ], UI.t("merge.all_warning"))
+
+func _merge_all(category: String) -> void:
+    _close_overlay()
+    _sync_and_save()
+    var result := game.merge_all(category)
+    if result["count"] > 0:
+        _save()
+    _feedback(UI.t("merge.all_complete", [result["count"]]) if result["error"] == "" else result["error"])
 
 func _show_character(id: String) -> void:
     if not game.characters.has(id):
@@ -516,8 +617,9 @@ func _unequip_collection(character_id: String) -> void:
         _save()
     _feedback(UI.t("collection.removed") if error == "" else error)
 
-func _show_options(title: String, options: Array, details: String = "") -> void:
+func _show_options(title: String, options: Array, details: String = "", show_picker_filters: bool = false) -> void:
     for child in overlay.get_children():
+        overlay.remove_child(child)
         child.queue_free()
     overlay.visible = true
     var margin := MarginContainer.new()
@@ -535,6 +637,11 @@ func _show_options(title: String, options: Array, details: String = "") -> void:
     var box := VBoxContainer.new()
     panel.add_child(box)
     box.add_child(_label(title, 20))
+    if show_picker_filters:
+        var filters := HBoxContainer.new()
+        filters.add_theme_constant_override("separation", 6)
+        box.add_child(filters)
+        _add_filter_controls(filters, picker_system_filter, picker_tier_filter, "_set_picker_system_filter", "_set_picker_tier_filter")
     var scroll := ScrollContainer.new()
     scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
     scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED

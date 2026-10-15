@@ -123,6 +123,8 @@ Four separate banners:
 - Android portrait, touch-first controls; cute, polished, pastel/pixel-inspired aesthetic. No external paid assets required.
 - Screens should include: **Rooms**, **Inventory/Characters**, **Gacha**, **Skill-book Shop**, **Collection**, and appropriate character detail/evolution/equipment dialogs.
 - Clearly show six resource balances, production amounts and countdowns, assigned pet/employee, rank, available slots, and book effects.
+- The Characters screen separates owned pets and employees. Both character lists and room assignment pickers may filter by resource system and exact rank; show higher ranks first. Character cards show owned copy counts for merging.
+- A category-scoped "Merge all" command may apply the existing same-identity, same-tier `2/2/3` merge rule repeatedly from lower to higher tiers. It does not change merge requirements or save data. Confirm before applying it; return equipped books and preserve a compatible room assignment when possible.
 - Explain why invalid actions are blocked (wrong system, no slot, insufficient currency, missing copies, already assigned, etc.).
 - Make layouts usable on typical Android portrait screens and test with Godot's stretch/scaling behavior.
 - Cosmetics are a later-phase feature; do not block the MVP on art assets or unfinalized skin rules.
