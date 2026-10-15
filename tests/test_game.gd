@@ -45,11 +45,12 @@ func run_tests() -> void:
     check(g.assign(0, "employee", crystal_employee) != "", "wrong system employee rejected")
     check(g.assign(1, "employee", gold_employee) != "", "employee needs pet")
     var solo := g.production(g.rooms[0])
-    near(solo["output"], 100.0, "pet alone output")
+    near(solo["outputs"]["gold"], 100.0, "pet alone output")
+    check(solo["outputs"].size() == 1, "native room has one resource")
     near(solo["cycle"], 100.0, "pet alone cycle")
     check(g.assign(0, "employee", gold_employee) == "", "same system employee accepted")
     var paired := g.production(g.rooms[0])
-    near(paired["output"], 110.0, "matching output +10 percent")
+    near(paired["outputs"]["gold"], 110.0, "matching output +10 percent")
     near(paired["cycle"], 81.0, "employee then matching cycle")
     g.advance(80.0)
     near(g.balances["gold"], 0.0, "incomplete cycle credits nothing")
@@ -70,7 +71,7 @@ func run_tests() -> void:
     for tier in 27:
         check(GameData.slots(tier) == tier / 3, "skill slot tier %d" % tier)
     var high_pet := g.add_character("pet_gold_1", 26)
-    near(g.production({"pet": high_pet, "employee": "", "progress": 0.0})["output"], 50.0 * pow(1.1, 26), "rank scales output per tier")
+    near(g.production({"pet": high_pet, "employee": "", "progress": 0.0})["outputs"]["gold"], 50.0 * pow(1.1, 26), "rank scales output per tier")
     near(g.production({"pet": high_pet, "employee": "", "progress": 0.0})["cycle"], 60.0, "rank does not scale pet cycle")
     var m1 := g.add_character("pet_gold_1", 0)
     var m2 := g.add_character("pet_gold_1", 0)
@@ -126,7 +127,10 @@ func run_tests() -> void:
     check(g.collections["pet"].has("crystal") and not g.collections["employee"].has("fashion"), "independent collections")
     check(g.equip_collection(e_pet, "crystal") == "", "foreign collection equip")
     check(g.equip_collection(e_pet, "crystal") != "", "collection buff cannot stack")
-    near(g.production({"pet": e_pet, "employee": "", "progress": 0.0})["output"], 20.0 * pow(1.1, 3) * 1.5, "foreign pet buff")
+    var foreign_output: Dictionary = g.production({"pet": e_pet, "employee": "", "progress": 0.0})["outputs"]
+    near(foreign_output["gold"], 20.0 * pow(1.1, 3), "foreign collection leaves native production alone")
+    near(foreign_output["crystal"], 20.0 * pow(1.1, 3) * 0.5, "foreign collection produces its own resource")
+    check(foreign_output.size() == 2, "two resource systems only")
     check(g.equip_collection(foreign_pet, "gold") != "", "F rank has zero slots")
     check(g.equip_collection(e_emp, "crystal") == "", "employee collection independently unlocked")
     check(g.equip_collection(e_emp, "fashion") != "", "locked employee collection rejected")
@@ -171,10 +175,40 @@ func run_tests() -> void:
         check(g.equip_book(sss_pet, foreign_result["id"]) == "", "foreign book occupies collection system slot")
     check(g.characters[sss_pet]["books"].size() + 1 == 8, "SSS 4+4 slot split")
     near(g._book_bonus(g.characters[sss_pet]), 1.0, "foreign books do not alter native output")
+    var split_outputs: Dictionary = g.production({"pet": sss_pet, "employee": "", "progress": 0.0})["outputs"]
+    var split_base: float = 20.0 * pow(1.1, 24)
+    near(split_outputs["gold"], split_base * 2.0, "gold books increase only gold output")
+    near(split_outputs["crystal"], split_base * 1.1, "crystal books increase only crystal output")
     check(g.equip_book(sss_pet, g.buy_book("pet", "crystal")["id"]) != "", "foreign system capped at four occupied slots")
     check(g.unequip_collection(sss_pet) == "", "unequipping collection returns foreign books")
     for id in foreign_books:
         check(g.books[id]["equipped_by"] == "", "foreign book returned with collection skill")
+
+    var multi := GameState.new_game()
+    var multi_pet := multi.add_character("pet_gold_0", 3)
+    multi.add_character("pet_crystal_0", 0)
+    check(multi.assign(0, "pet", multi_pet) == "", "ranked pet assigned for multiple resources")
+    check(multi.equip_collection(multi_pet, "crystal") == "", "crystal collection enables second resource")
+    var multi_production := multi.production(multi.rooms[0])
+    near(multi_production["outputs"]["gold"], 100.0 * pow(1.1, 3), "native gold output unchanged")
+    near(multi_production["outputs"]["crystal"], 50.0 * pow(1.1, 3), "crystal output half base")
+    var multi_copy := GameState.from_dict(JSON.parse_string(JSON.stringify(multi.to_dict())))
+    check(multi_copy != null and multi_copy.characters[multi_pet]["foreign"] == "crystal", "multi-resource equipment survives save round trip")
+    multi_copy.last_timestamp = 1000.0
+    near(multi_copy.catch_up(1200.0), 200.0, "offline time counted once")
+    near(multi_copy.balances["gold"], 2.0 * multi_production["outputs"]["gold"], "offline credits native gold")
+    near(multi_copy.balances["crystal"], 2.0 * multi_production["outputs"]["crystal"], "offline credits foreign crystal")
+    var multi_gold: float = multi_copy.balances["gold"]
+    var multi_crystal: float = multi_copy.balances["crystal"]
+    near(multi_copy.catch_up(1200.0), 0.0, "multi-resource resume idempotent")
+    near(multi_copy.balances["gold"], multi_gold, "repeat offline does not credit gold")
+    near(multi_copy.balances["crystal"], multi_crystal, "repeat offline does not credit crystal")
+    var multi_employee := multi_copy.add_character("employee_gold_0", 0)
+    check(multi_copy.assign(0, "employee", multi_employee) == "", "matching employee may join multi-resource pet")
+    var paired_outputs: Dictionary = multi_copy.production(multi_copy.rooms[0])["outputs"]
+    near(paired_outputs["gold"], multi_production["outputs"]["gold"] * 1.1, "matching pair increases native system only")
+    near(paired_outputs["crystal"], multi_production["outputs"]["crystal"], "employee creates no foreign output bonus")
+    check(multi_copy.assign(0, "employee", multi_copy.add_character("employee_crystal_0", 0)) != "", "foreign resource does not permit mismatched employee")
 
     var employee_game := GameState.new_game()
     employee_game.balances["gold"] = 10000.0

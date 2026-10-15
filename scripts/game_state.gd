@@ -131,11 +131,13 @@ func production(room: Dictionary) -> Dictionary:
     var pet_info := GameData.identity_info(pet["identity"])
     var pair := matching(room)
     var output_bonus: float = _book_bonus(pet, pet_info["system"])
-    if pet["foreign"] != "":
-        output_bonus += 0.5
     if pair:
         output_bonus += 0.1
-    var output: float = GameData.PET_OUTPUT[pet_info["index"]] * pow(1.1, pet["tier"]) * (1.0 + output_bonus)
+    var base_output: float = GameData.PET_OUTPUT[pet_info["index"]] * pow(1.1, pet["tier"])
+    var outputs := {pet_info["system"]: base_output * (1.0 + output_bonus)}
+    if pet["foreign"] != "":
+        var foreign_system: String = pet["foreign"]
+        outputs[foreign_system] = base_output * (0.5 + _book_bonus(pet, foreign_system))
     var cycle: float = GameData.PET_CYCLE[pet_info["index"]]
     if room["employee"] != "" and characters.has(room["employee"]):
         var employee = characters[room["employee"]]
@@ -147,7 +149,7 @@ func production(room: Dictionary) -> Dictionary:
     if pair:
         cycle *= 0.9
     cycle = maxf(GameData.CYCLE_FLOOR, cycle)
-    return {"system": pet_info["system"], "output": output, "cycle": cycle}
+    return {"outputs": outputs, "cycle": cycle}
 
 func advance(seconds: float) -> void:
     if not is_finite(seconds) or seconds <= 0.0:
@@ -161,7 +163,8 @@ func advance(seconds: float) -> void:
         var completed := floori(total / cycle)
         room["progress"] = maxf(0.0, total - completed * cycle)
         if completed > 0:
-            balances[production_data["system"]] += completed * production_data["output"]
+            for system in production_data["outputs"]:
+                balances[system] += completed * production_data["outputs"][system]
 
 func catch_up(now: float) -> float:
     if not is_finite(now):

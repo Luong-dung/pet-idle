@@ -22,7 +22,7 @@ Exactly six independent systems:
 | components | Linh kiện | Intended for room upgrades; room-upgrade mechanic not defined |
 | fashion | Thời trang | Cosmetic skins, later phase |
 
-Each pet and employee belongs to exactly one system, and character identities/names must be unique across systems. A pet generates only its own system's resource. Do not create automatic conversion between resources.
+Each pet and employee belongs to exactly one native system, and character identities/names must be unique across systems. A pet normally generates its native system's resource. An equipped foreign pet collection skill also produces its selected foreign resource in the same room cycle; this is additional production, not resource conversion.
 
 ## 3. Character roster and rooms
 
@@ -82,16 +82,16 @@ Nine major ranks, each with three subtiers (`-`, neutral, `+`), for **27 ordered
 - The **first acquired pet** of a given resource system permanently unlocks that system in the **pet collection**. Additional pets of that system do not unlock it again. The same rule applies independently to employee collection.
 - Once a foreign system is unlocked in the relevant collection, a character may equip its **basic collection skill** as the single allowed foreign system.
 - Collection skill uses **one normal skill slot** and cannot be equipped repeatedly to stack the same 50% effect.
-- **Pet foreign collection skill:** **+50% to pet production output X** (not cycle time).
+- **Pet foreign collection skill:** produces the selected foreign resource at **50% of the pet's rank-scaled base output X** in each room cycle. The native resource output remains separate.
 - **Employee foreign collection skill:** 50% effectiveness applied to the employee's time-reduction ability; exact interaction with other employee-book effects should be made explicit before final balance tuning.
 - A book belonging to system `H` affects **only system H**. Do not globally apply books of one system to another system or conflate the collection skill with a regular book.
-- The precise interaction of foreign collection skills with books/foreign system resource targets is not fully specified; implement the simplest internally consistent interpretation only as a documented provisional decision, or isolate it behind data-driven rules.
+- Pet books affect only output of their own resource system. The precise magnitude interaction of foreign books with the foreign collection skill is not fully specified; document the provisional implementation. Do not add foreign-system employee production mechanics.
 
 ## 8. Calculation rules
 
 - Rank-scaled base pet output: `X_rank = X_Fminus * 1.1^(tier_index)`.
 - Rank-scaled base employee innate time reduction: `R_rank = 10 * 1.1^(tier_index)` seconds.
-- **Percentage output buffs are additive**, then applied once: `X_effective = X_rank * (1 + sum(output_percentage_bonuses))`, plus any explicitly defined flat additions. Example: +20% pet book, +50% collection, +10% matched pair gives `X_rank * 1.8`, **not** `X_rank * 1.2 * 1.5 * 1.1`.
+- **Percentage output buffs within one resource system are additive**, then applied once, plus any explicitly defined flat additions. Example: +20% native pet book and +10% matched pair give native output `X_rank * 1.3`, **not** `X_rank * 1.2 * 1.1`. Foreign collection output is a separate resource entry.
 - Employee reduction bonuses combine additively according to their definitions before subtracting from cycle time. Matching-pair time bonus is **-10% cycle time**; document operation order and test it consistently.
 - Avoid rounding internal calculations prematurely; round for UI display and define a deterministic policy for crediting fractional resource units.
 - A character's rank never changes its pet's base Y directly.
@@ -142,7 +142,7 @@ These are **not approved game rules**. Record assumptions in `PROGRESS.md`, keep
 1. **Starting state / softlock prevention:** three rooms are free, but initial pet(s), employee(s), and currency balances were not decided. Ensure a playable bootstrap without presenting a new rule as confirmed.
 2. **Names, visual identities and matched pairs:** 18 pet names, 18 employee names, three matching pairs per system need authoring; they must remain unique across systems.
 3. **Skill-book catalog:** exact pet/employee book effects and magnitudes, flat vs percent effects, and purchase currency per system are not finalized.
-4. **Collection + foreign book interactions:** exact cross-system eligibility, targeting and employee 50% formula need a precise interpretation.
+4. **Collection + foreign book interactions:** foreign pet resource targeting is confirmed; exact foreign book magnitude interaction, whether matching-pair output bonus affects foreign output, and employee 50% formula still need final balance approval.
 5. **Cycle time safety floor, rounding, and order of time modifiers:** implementation safeguards must be documented and tested.
 6. **Use of Essence/Components/Fashion:** their intended future sinks are known, but concrete upgrade/cosmetic mechanics are not yet designed.
 7. **Initial roster balancing:** pet production examples are defined; employee identity-level stat differentiation is not.

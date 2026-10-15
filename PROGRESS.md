@@ -1,23 +1,24 @@
 # PET IDLE progress
 
 ## Current status and last verified commit
-- Playable MVP on `main`; last verified base commit `0213332`. Current localization checkpoint hash is available via `git log -1 --oneline` after commit.
+- Playable MVP on `main`; last verified prior commit `e9379aa` (Vietnamese UI). This gameplay/UI checkpoint is verified below and committed with this file; use `git log -1 --oneline` for its hash.
 
 ## Completed milestones (with tests)
 - Foundation/core gameplay: Godot project, centralized 36-identity roster, three free rooms, six currencies, assignment/production, offline cap, versioned save/load, 27-tier merge, four gacha banners, book shop/equipment, independent collections, and functional six-screen portrait UI. `tests/test_game.gd`: 233 checks passed; headless main scene startup passed.
 - Presentation and hardening: original procedural pet/employee portraits and app icon, book inventory and subtle UI feedback, two-system skill slots, save backup recovery and validation, 15-second autosave, Android portrait preset, user instructions. Full regression: 344 gameplay checks and 12 UI checks passed; main scene and editor import passed. Rendered 432×768 screenshots of Rooms, Characters and Gacha inspected; no clipping found in the visible viewport.
 - Vietnamese player UI: all navigation, screens, buttons, gacha/shop/collection/help text, character details, skill descriptions and state errors now use the centralized `scripts/ui_text.gd` catalog. Proper character names and gameplay data stayed unchanged. Font glyph check covers catalog, resource names and all character names. Rendered 360×640 screenshots of six screens and detail/merge dialogs were inspected; text was readable and stayed within the layout. Regression: 344 gameplay checks; 25 UI checks at each of 360×640 and 432×768.
+- Multi-resource and Android UI fix: pet foreign collection skill now produces its own resource alongside native output; native/foreign books affect only matching resource entries. Offline accrual credits both; save version stays 1. Rooms show each output. Character screen has fixed Thú cưng/Nhân viên tabs with separate counts, filtered cards and empty states. Resource icon plus Vietnamese name appears in inventory, selection, gacha, collection, details and merge. Both native scroll containers use a 12px touch deadzone with passing child controls and release-mode buttons. Expanded canvas uses tall phone height. Verified 364 gameplay checks and 50 UI checks at three portrait sizes; main scene starts headlessly.
 
 ## In progress
-- Commit and push this verified localization checkpoint.
+- Android on-device gesture and visual validation remains pending an exportable APK. Existing user changes to `project.godot`, `export_presets.cfg` and `PET IDLE.apk.idsig` were preserved outside this checkpoint.
 
 ## Remaining milestones
-- Install Godot 4.7.2 Android export templates, Java SDK and Android SDK build/platform tools, then build and test an APK on device. Final book catalog, purchase currency, foreign skill/book targeting, starter state, and future resource sinks require design approval.
+- Install Godot 4.7.2 Android export templates, Java SDK and Android SDK build/platform tools, then build and test an APK on several portrait devices. Final book catalog, purchase currency, foreign book magnitude interaction, starter state, and future resource sinks require design approval.
 
 ## Known bugs / blockers
 - Android export attempted; no APK generated. This environment lacks Godot 4.7.2 Android debug/release templates, a configured Java SDK, and Android SDK `platform-tools`/`build-tools`. Godot's export command misleadingly returned process code 0 while logging export failure; artifact existence was checked separately.
 - Godot prints a host certificate-store warning in sandboxed runs. It does not affect local gameplay tests.
-- No known Vietnamese font or layout defects in the inspected desktop render; Android device rendering remains unverified because the APK prerequisites are absent.
+- This checkpoint passed headless geometry tests at 360×640, 360×800 and 432×960. Godot headless does not perform native touch scrolling for synthetic touch events; tests verified drag propagation over a card button, no accidental action, control filters and deadzones. Real Android swipe/tap behavior and rendered layout still need device verification.
 
 ## PROVISIONAL assumptions / unresolved design questions
 - Starting state: one F- gold pet in three free rooms and no starting currency. This allows gold generation without creating free gacha pulls.
@@ -25,7 +26,7 @@
 - All employee identities share the confirmed 10-second F- reduction until differentiated balance is approved.
 - Book catalog: one pet and one employee book per system, each full four-copy stack gives +100% to output/reduction. Purchase currency is its system resource. Both are PROVISIONAL pending approved catalog/currency.
 - Book prices use exact integer ceil after each 10% increase. Resource balances retain fractional units; UI rounds to one decimal. PROVISIONAL rounding policy.
-- A character may equip one unlocked foreign collection skill plus up to three books of that foreign system, allowing a 4+4 slot split at SSS. Foreign books occupy slots but do not affect native resource production; books only affect their own system. The collection skill adds +50% of native output or innate reduction, additively with native books. PROVISIONAL targeting/interaction pending design approval.
+- A character may equip one unlocked foreign collection skill plus up to three books of that foreign system, allowing a 4+4 slot split at SSS. Pet foreign collection output is 50% of rank-scaled base output in its own resource, as confirmed by the current request. PROVISIONAL book interaction: foreign pet books add their same-system percentage to that 50% base (e.g. three copies: 50% + 60%). Native books affect native output only. PROVISIONAL matching interaction: the pair's +10% output bonus affects native output only. Employee foreign skill retains its prior native cooldown-reduction behavior; no foreign employee production was added.
 - Employee reduction is subtracted from base cycle, then matching-pair 0.9 time multiplier; cycle is guarded at 1 second. PROVISIONAL order/floor.
 - Assignment or equipment changes reset the affected room's partial cycle, preventing retroactive application of new bonuses. PROVISIONAL timing policy.
 - Essence, components and fashion have no speculative sinks; their pets produce them and same-system books spend them.
@@ -37,6 +38,7 @@
 - `godot --headless --path . --quit-after 5`: exit 0, no script errors (2026-10-15).
 - `godot --headless --path . --export-debug Android build/pet-idle.apk`: export failed due missing templates/SDKs; `build/pet-idle.apk` absent (2026-10-15).
 - Localization checkpoint (2026-10-15): `godot --headless --path . --editor --quit` passed; `--script res://tests/test_game.gd` passed 344/344; `--resolution 360x640 --script res://tests/test_ui.gd` and `--resolution 432x768 --script res://tests/test_ui.gd` each passed 25/25; `--quit-after 5` passed. All used sandbox-writable `APPDATA`.
+- Multi-resource/UI checkpoint (2026-10-15): `--script res://tests/test_game.gd` passed 364/364; `--resolution 360x640`, `360x800`, and `432x960 --script res://tests/test_ui.gd` each passed 54/54; `--quit-after 5` passed. Editor import/parse passed; its Android SDK warning is noted above. All Godot runs used sandbox-writable `APPDATA`. Gameplay/UI suites share a save fixture, so run them sequentially.
 
 ## Exact next action for the next session
-- Install the Android export prerequisites, build a debug APK and check Vietnamese text on a portrait device. Request decisions on the marked provisional balance/targeting rules before final tuning.
+- Install Android export prerequisites, build a debug APK, then test swipe over cards/text/portraits/buttons, button taps, popup scrolling and layout on narrow and tall portrait devices. Confirm the marked provisional foreign-book magnitude before final balance tuning.
