@@ -23,10 +23,15 @@ var timer := 0.0
 var autosave_timer := 0.0
 var touch_active := false
 var pending_touch_render := false
-const BG := Color("fff8ee")
-const INK := Color("414052")
-const SOFT := Color("fffdf9")
-const ACCENT := Color("ef8f9a")
+var balance_labels: Array = []
+var nav_items := {}
+var status_toast: PanelContainer
+var toast_tween: Tween
+const INK := UITheme.INK
+const SOFT := UITheme.SURFACE
+const ACCENT := UITheme.ACCENT
+const PAGES := [["nav.rooms", "rooms"], ["nav.characters", "characters"], ["nav.gacha", "gacha"],
+    ["nav.shop", "shop"], ["nav.collection", "collection"], ["nav.help", "help"]]
 
 func _ready() -> void:
     game = GameState.load_game()
@@ -72,58 +77,101 @@ func _input(event: InputEvent) -> void:
             call_deferred("_render")
 
 func _style(color: Color, radius: int = 16) -> StyleBoxFlat:
-    var style := StyleBoxFlat.new()
-    style.bg_color = color
-    style.set_corner_radius_all(radius)
-    style.content_margin_left = 12
-    style.content_margin_right = 12
-    style.content_margin_top = 10
-    style.content_margin_bottom = 10
-    return style
+    return UITheme.box(color, radius)
 
-func _label(value: String, size: int = 15, color: Color = INK) -> Label:
+func _label(value: String, size: int = 15, color: Color = INK, weight: int = 700) -> Label:
     var label := Label.new()
     label.text = value
     label.add_theme_font_size_override("font_size", size)
     label.add_theme_color_override("font_color", color)
+    if weight != 700:
+        label.add_theme_font_override("font", UITheme.font(weight))
     label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+    label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
     label.mouse_filter = Control.MOUSE_FILTER_IGNORE
     return label
+
+func _heading(value: String, size: int = 21, color: Color = INK) -> Label:
+    return _label(value, size, color, 900)
+
+func _icon(kind: String, icon_size: float = 26, color: Color = ACCENT) -> UIIcon:
+    var icon := UIIcon.new()
+    icon.kind = kind
+    icon.color = color
+    icon.custom_minimum_size = Vector2(icon_size, icon_size)
+    icon.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+    return icon
 
 func _button(value: String, method: String, args: Array = [], color: Color = ACCENT) -> Button:
     var button := Button.new()
     button.text = value
-    button.custom_minimum_size = Vector2(0, 44)
+    button.custom_minimum_size = Vector2(0, 46)
     button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
     button.mouse_filter = Control.MOUSE_FILTER_PASS
     button.action_mode = BaseButton.ACTION_MODE_BUTTON_RELEASE
     button.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
     button.clip_text = true
-    button.add_theme_stylebox_override("normal", _style(color, 12))
-    button.add_theme_stylebox_override("hover", _style(color.lightened(0.08), 12))
-    button.add_theme_stylebox_override("pressed", _style(color.darkened(0.1), 12))
+    button.focus_mode = Control.FOCUS_NONE
+    for state in ["normal", "hover", "pressed", "disabled"]:
+        button.add_theme_stylebox_override(state, UITheme.candy(color, state))
+    button.add_theme_stylebox_override("hover_pressed", UITheme.candy(color, "pressed"))
     button.add_theme_color_override("font_color", INK)
     button.add_theme_color_override("font_hover_color", INK)
+    button.add_theme_color_override("font_pressed_color", INK)
+    button.add_theme_color_override("font_disabled_color", UITheme.NAV_IDLE)
+    button.add_theme_font_override("font", UITheme.font(800))
     button.add_theme_font_size_override("font_size", 14)
     button.pressed.connect(Callable(self, method).bindv(args))
     return button
 
 func _card(parent: Node, color: Color = SOFT) -> VBoxContainer:
     var panel := PanelContainer.new()
-    panel.add_theme_stylebox_override("panel", _style(color))
+    panel.add_theme_stylebox_override("panel", UITheme.box(color, 20, color.darkened(0.08), 2, true))
     panel.size_flags_horizontal = Control.SIZE_EXPAND_FILL
     panel.mouse_filter = Control.MOUSE_FILTER_PASS
     parent.add_child(panel)
     var box := VBoxContainer.new()
-    box.add_theme_constant_override("separation", 5)
+    box.add_theme_constant_override("separation", 7)
     panel.add_child(box)
     return box
 
 func _row(parent: Node) -> HBoxContainer:
     var row := HBoxContainer.new()
-    row.add_theme_constant_override("separation", 6)
+    row.add_theme_constant_override("separation", 8)
     parent.add_child(row)
     return row
+
+func _badge(parent: Node, value: String, color: Color) -> void:
+    var panel := PanelContainer.new()
+    var style := UITheme.box(color, 12)
+    style.content_margin_top = 3
+    style.content_margin_bottom = 3
+    style.content_margin_left = 10
+    style.content_margin_right = 10
+    panel.add_theme_stylebox_override("panel", style)
+    panel.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
+    panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
+    var text := _label(value, 13, INK, 900)
+    text.autowrap_mode = TextServer.AUTOWRAP_OFF
+    panel.add_child(text)
+    parent.add_child(panel)
+
+func _section_title(value: String, kind: String) -> void:
+    var row := _row(body)
+    row.add_child(_icon(kind, 26, UITheme.TITLE))
+    var title := _heading(value, 21)
+    title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+    row.add_child(title)
+
+func _info(value: String) -> void:
+    var panel := PanelContainer.new()
+    var style := UITheme.box(Color(1, 1, 1, 0.6), 14)
+    style.content_margin_top = 8
+    style.content_margin_bottom = 8
+    panel.add_theme_stylebox_override("panel", style)
+    panel.mouse_filter = Control.MOUSE_FILTER_PASS
+    panel.add_child(_label(value, 13, UITheme.INK_SOFT))
+    body.add_child(panel)
 
 func _portrait(identity_id: String) -> Control:
     var portrait = PortraitScript.new()
@@ -131,62 +179,209 @@ func _portrait(identity_id: String) -> Control:
     return portrait
 
 func _build_shell() -> void:
-    var background := ColorRect.new()
-    background.color = BG
+    theme = UITheme.build()
+    var background := TextureRect.new()
+    background.texture = UITheme.background_texture()
+    background.stretch_mode = TextureRect.STRETCH_SCALE
+    background.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
     background.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+    background.mouse_filter = Control.MOUSE_FILTER_IGNORE
     add_child(background)
+    var frame := VBoxContainer.new()
+    frame.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+    frame.add_theme_constant_override("separation", 0)
+    add_child(frame)
+    var margin := MarginContainer.new()
+    margin.size_flags_vertical = Control.SIZE_EXPAND_FILL
+    for side in ["left", "right"]:
+        margin.add_theme_constant_override("margin_" + side, 12)
+    margin.add_theme_constant_override("margin_top", 10)
+    margin.add_theme_constant_override("margin_bottom", 4)
+    frame.add_child(margin)
     var root := VBoxContainer.new()
-    root.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
     root.add_theme_constant_override("separation", 8)
-    add_child(root)
-    var header := VBoxContainer.new()
-    header.add_theme_constant_override("separation", 3)
-    root.add_child(header)
-    var title := _label("✿ PET IDLE", 28, Color("b55f78"))
-    title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-    header.add_child(title)
-    var title_tween := create_tween().set_loops()
-    title_tween.tween_property(title, "modulate:a", 0.72, 1.5)
-    title_tween.tween_property(title, "modulate:a", 1.0, 1.5)
-    balances_panel = GridContainer.new()
-    balances_panel.columns = 2
-    header.add_child(balances_panel)
-    var nav := GridContainer.new()
-    nav.columns = 3
-    root.add_child(nav)
-    for item in [["nav.rooms", "rooms"], ["nav.characters", "characters"], ["nav.gacha", "gacha"],
-            ["nav.shop", "shop"], ["nav.collection", "collection"], ["nav.help", "help"]]:
-        var button := _button(UI.t(item[0]), "_change_page", [item[1]], Color("e9dfef"))
-        button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-        nav.add_child(button)
+    margin.add_child(root)
+    root.add_child(_build_header())
     character_tabs = HBoxContainer.new()
-    character_tabs.add_theme_constant_override("separation", 6)
+    character_tabs.add_theme_constant_override("separation", 8)
     root.add_child(character_tabs)
     character_filters = HBoxContainer.new()
-    character_filters.add_theme_constant_override("separation", 6)
+    character_filters.add_theme_constant_override("separation", 8)
     root.add_child(character_filters)
     content_scroll = ScrollContainer.new()
     content_scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
     content_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
     content_scroll.scroll_deadzone = 12
     root.add_child(content_scroll)
+    var padding := MarginContainer.new()
+    padding.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+    padding.add_theme_constant_override("margin_left", 4)
+    padding.add_theme_constant_override("margin_right", 8)
+    padding.add_theme_constant_override("margin_top", 4)
+    padding.add_theme_constant_override("margin_bottom", 16)
+    padding.mouse_filter = Control.MOUSE_FILTER_PASS
+    content_scroll.add_child(padding)
     body = VBoxContainer.new()
     body.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-    body.add_theme_constant_override("separation", 8)
-    content_scroll.add_child(body)
-    status = _label("", 13, Color("a55262"))
-    status.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-    root.add_child(status)
+    body.add_theme_constant_override("separation", 12)
+    padding.add_child(body)
+    frame.add_child(_build_nav())
+    _build_toast()
     overlay = ColorRect.new()
-    overlay.color = Color(0.16, 0.13, 0.21, 0.73)
+    overlay.color = Color(0.2, 0.12, 0.24, 0.6)
     overlay.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
     overlay.visible = false
     add_child(overlay)
+
+func _build_header() -> Control:
+    var header := PanelContainer.new()
+    var style := UITheme.box(Color(1, 1, 1, 0.78), 22, Color.WHITE, 2, true)
+    style.content_margin_top = 8
+    style.content_margin_bottom = 10
+    style.content_margin_left = 10
+    style.content_margin_right = 10
+    header.add_theme_stylebox_override("panel", style)
+    var box := VBoxContainer.new()
+    box.add_theme_constant_override("separation", 6)
+    header.add_child(box)
+    var title_row := HBoxContainer.new()
+    title_row.alignment = BoxContainer.ALIGNMENT_CENTER
+    title_row.add_theme_constant_override("separation", 6)
+    box.add_child(title_row)
+    var paw := _icon("characters", 22, UITheme.ACCENT)
+    title_row.add_child(paw)
+    var title := _heading("PET IDLE", 24, UITheme.TITLE)
+    title.autowrap_mode = TextServer.AUTOWRAP_OFF
+    title.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+    title.add_theme_constant_override("outline_size", 6)
+    title.add_theme_color_override("font_outline_color", Color.WHITE)
+    title_row.add_child(title)
+    var paw_tween := create_tween().set_loops()
+    paw_tween.tween_property(paw, "rotation", 0.18, 0.9).set_trans(Tween.TRANS_SINE)
+    paw_tween.tween_property(paw, "rotation", -0.18, 0.9).set_trans(Tween.TRANS_SINE)
+    paw.pivot_offset = Vector2(11, 11)
+    balances_panel = GridContainer.new()
+    balances_panel.columns = 3
+    balances_panel.add_theme_constant_override("h_separation", 6)
+    balances_panel.add_theme_constant_override("v_separation", 6)
+    box.add_child(balances_panel)
+    balance_labels.clear()
+    for i in GameData.SYSTEMS.size():
+        var system: String = GameData.SYSTEMS[i]
+        var tint: Color = GameData.SYSTEM_COLORS[i]
+        var chip := PanelContainer.new()
+        var chip_style := UITheme.box(tint.lightened(0.84), 12, tint.lightened(0.45), 1)
+        chip_style.content_margin_left = 6
+        chip_style.content_margin_right = 4
+        chip_style.content_margin_top = 3
+        chip_style.content_margin_bottom = 3
+        chip.add_theme_stylebox_override("panel", chip_style)
+        chip.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+        chip.mouse_filter = Control.MOUSE_FILTER_IGNORE
+        balances_panel.add_child(chip)
+        var row := HBoxContainer.new()
+        row.add_theme_constant_override("separation", 5)
+        chip.add_child(row)
+        row.add_child(_icon("coin:" + system, 22))
+        var texts := VBoxContainer.new()
+        texts.add_theme_constant_override("separation", -4)
+        texts.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+        row.add_child(texts)
+        var name_label := _label(UI.system_name(system), 10, UITheme.INK_SOFT, 800)
+        name_label.autowrap_mode = TextServer.AUTOWRAP_OFF
+        name_label.clip_text = true
+        texts.add_child(name_label)
+        var amount := _label("", 13, tint.darkened(0.45), 900)
+        amount.autowrap_mode = TextServer.AUTOWRAP_OFF
+        amount.clip_text = true
+        texts.add_child(amount)
+        balance_labels.append(amount)
+    return header
+
+func _build_nav() -> Control:
+    var bar := PanelContainer.new()
+    var style := UITheme.box(Color.WHITE, 0)
+    style.corner_radius_top_left = 24
+    style.corner_radius_top_right = 24
+    style.shadow_color = UITheme.SHADOW
+    style.shadow_size = 10
+    style.shadow_offset = Vector2(0, -2)
+    style.content_margin_left = 6
+    style.content_margin_right = 6
+    style.content_margin_top = 6
+    style.content_margin_bottom = 8
+    bar.add_theme_stylebox_override("panel", style)
+    var row := HBoxContainer.new()
+    row.add_theme_constant_override("separation", 2)
+    bar.add_child(row)
+    nav_items.clear()
+    for item in PAGES:
+        var button := Button.new()
+        button.custom_minimum_size = Vector2(0, 58)
+        button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+        button.mouse_filter = Control.MOUSE_FILTER_PASS
+        button.action_mode = BaseButton.ACTION_MODE_BUTTON_RELEASE
+        button.focus_mode = Control.FOCUS_NONE
+        button.tooltip_text = UI.t(item[0])
+        button.pressed.connect(_change_page.bind(item[1]))
+        row.add_child(button)
+        var stack := VBoxContainer.new()
+        stack.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+        stack.alignment = BoxContainer.ALIGNMENT_CENTER
+        stack.add_theme_constant_override("separation", 1)
+        stack.mouse_filter = Control.MOUSE_FILTER_IGNORE
+        button.add_child(stack)
+        var icon := _icon(item[1], 24, UITheme.NAV_IDLE)
+        icon.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+        stack.add_child(icon)
+        var caption := _label(UI.t(item[0]), 10, UITheme.NAV_IDLE, 800)
+        caption.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+        caption.autowrap_mode = TextServer.AUTOWRAP_OFF
+        caption.clip_text = true
+        stack.add_child(caption)
+        nav_items[item[1]] = {"button": button, "icon": icon, "caption": caption}
+    return bar
+
+func _update_nav() -> void:
+    for key in nav_items:
+        var item: Dictionary = nav_items[key]
+        var active: bool = key == page
+        var tint: Color = UITheme.ACCENT if active else UITheme.NAV_IDLE
+        item["icon"].color = tint
+        item["caption"].add_theme_color_override("font_color", tint)
+        var style := UITheme.box(UITheme.ACCENT_SOFT if active else Color(1, 1, 1, 0), 16)
+        for state in ["normal", "hover", "pressed", "hover_pressed"]:
+            item["button"].add_theme_stylebox_override(state, style)
+
+func _build_toast() -> void:
+    var holder := MarginContainer.new()
+    holder.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+    holder.mouse_filter = Control.MOUSE_FILTER_IGNORE
+    holder.add_theme_constant_override("margin_bottom", 86)
+    holder.add_theme_constant_override("margin_left", 24)
+    holder.add_theme_constant_override("margin_right", 24)
+    add_child(holder)
+    var column := VBoxContainer.new()
+    column.alignment = BoxContainer.ALIGNMENT_END
+    column.mouse_filter = Control.MOUSE_FILTER_IGNORE
+    holder.add_child(column)
+    status_toast = PanelContainer.new()
+    var style := UITheme.box(Color("4a3f5c", 0.92), 18)
+    style.content_margin_top = 9
+    style.content_margin_bottom = 9
+    status_toast.add_theme_stylebox_override("panel", style)
+    status_toast.mouse_filter = Control.MOUSE_FILTER_IGNORE
+    status_toast.visible = false
+    column.add_child(status_toast)
+    status = _label("", 14, Color.WHITE, 800)
+    status.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+    status_toast.add_child(status)
 
 func _render() -> void:
     if body == null:
         return
     _render_balances()
+    _update_nav()
     for child in body.get_children():
         child.queue_free()
     character_tabs.visible = page == "characters"
@@ -203,13 +398,8 @@ func _render() -> void:
         "help": _render_help()
 
 func _render_balances() -> void:
-    for child in balances_panel.get_children():
-        child.queue_free()
-    for i in GameData.SYSTEMS.size():
-        var system: String = GameData.SYSTEMS[i]
-        var item := _label("%s %s  %s" % [GameData.SYSTEM_ICONS[i], UI.system_name(system), _amount(game.balances[system])], 13, GameData.SYSTEM_COLORS[i].darkened(0.35))
-        item.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-        balances_panel.add_child(item)
+    for i in balance_labels.size():
+        balance_labels[i].text = _amount(game.balances[GameData.SYSTEMS[i]])
 
 func _amount(value: float) -> String:
     if value >= 1000000:
@@ -237,9 +427,15 @@ func _filter_option() -> OptionButton:
     option.custom_minimum_size.y = 44
     option.size_flags_horizontal = Control.SIZE_EXPAND_FILL
     option.mouse_filter = Control.MOUSE_FILTER_PASS
-    option.add_theme_stylebox_override("normal", _style(Color("e9dfef"), 12))
-    option.add_theme_stylebox_override("hover", _style(Color("f1e9f5"), 12))
+    option.focus_mode = Control.FOCUS_NONE
+    var style := UITheme.box(Color.WHITE, 14, UITheme.LILAC, 2)
+    style.content_margin_top = 6
+    style.content_margin_bottom = 6
+    option.add_theme_stylebox_override("normal", style)
+    option.add_theme_stylebox_override("hover", style)
+    option.add_theme_stylebox_override("pressed", UITheme.box(UITheme.LILAC, 14, UITheme.LILAC, 2))
     option.add_theme_color_override("font_color", INK)
+    option.add_theme_color_override("font_hover_color", INK)
     option.add_theme_font_size_override("font_size", 13)
     return option
 
@@ -263,7 +459,7 @@ func _render_character_tabs() -> void:
     for child in character_tabs.get_children():
         child.queue_free()
     for category in ["pet", "employee"]:
-        var button := _button(UI.t("characters.tab", [UI.category_name(category), _character_ids(category).size()]), "_select_character_category", [category], Color("f7c8a5") if category == character_category else Color("e9dfef"))
+        var button := _button(UI.t("characters.tab", [UI.category_name(category), _character_ids(category).size()]), "_select_character_category", [category], UITheme.PINK if category == character_category else Color.WHITE)
         button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
         character_tabs.add_child(button)
 
@@ -292,16 +488,14 @@ func _select_character_category(category: String) -> void:
     _render()
 
 func _render_rooms() -> void:
-    body.add_child(_label(UI.t("rooms.title"), 21))
+    _section_title(UI.t("rooms.title"), "rooms")
     for i in game.rooms.size():
         var room = game.rooms[i]
-        var box := _card(body, Color("fce9e4") if i % 2 == 0 else Color("e8f0ed"))
-        box.add_child(_label(UI.t("rooms.room_number", [i + 1]), 18))
+        var box := _card(body, Color("fff1ec") if i % 2 == 0 else Color("eef7f2"))
+        _badge(box, UI.t("rooms.room_number", [i + 1]), UITheme.PEACH if i % 2 == 0 else UITheme.MINT)
         var actors := _row(box)
-        if room["pet"] != "":
-            actors.add_child(_portrait(game.characters[room["pet"]]["identity"]))
-        if room["employee"] != "":
-            actors.add_child(_portrait(game.characters[room["employee"]]["identity"]))
+        actors.add_child(_portrait(game.characters[room["pet"]]["identity"] if room["pet"] != "" else ""))
+        actors.add_child(_portrait(game.characters[room["employee"]]["identity"] if room["employee"] != "" else ""))
         var actor_names := VBoxContainer.new()
         actor_names.size_flags_horizontal = Control.SIZE_EXPAND_FILL
         actors.add_child(actor_names)
@@ -311,34 +505,46 @@ func _render_rooms() -> void:
             pet_name += " · " + _system_label(GameData.identity_info(game.characters[room["pet"]]["identity"])["system"])
         if room["employee"] != "":
             employee_name += " · " + _system_label(GameData.identity_info(game.characters[room["employee"]]["identity"])["system"])
-        actor_names.add_child(_label(UI.t("rooms.pet", [pet_name])))
-        actor_names.add_child(_label(UI.t("rooms.employee", [employee_name])))
+        actor_names.alignment = BoxContainer.ALIGNMENT_CENTER
+        actor_names.add_child(_label(UI.t("rooms.pet", [pet_name]), 13))
+        actor_names.add_child(_label(UI.t("rooms.employee", [employee_name]), 13, UITheme.INK_SOFT))
         var production_data := game.production(room)
         if not production_data.is_empty():
             var remaining: float = maxf(0.0, production_data["cycle"] - room["progress"])
-            box.add_child(_label(UI.t("rooms.cycle", [_amount(production_data["cycle"]), _amount(remaining)]), 13))
             for system in GameData.SYSTEMS:
                 if production_data["outputs"].has(system):
-                    box.add_child(_label(UI.t("rooms.output", [_amount(production_data["outputs"][system]), _system_label(system)]), 13))
+                    var output_row := _row(box)
+                    output_row.add_child(_icon("coin:" + system, 20))
+                    output_row.add_child(_label(UI.t("rooms.output", [_amount(production_data["outputs"][system]), _system_label(system)]), 14, INK, 800))
             var progress := ProgressBar.new()
-            progress.custom_minimum_size.y = 12
+            progress.custom_minimum_size.y = 14
             progress.max_value = production_data["cycle"]
             progress.value = room["progress"]
             progress.show_percentage = false
+            var pet_system: String = GameData.identity_info(game.characters[room["pet"]]["identity"])["system"]
+            var track := UITheme.box(Color("efe5ec"), 7)
+            track.set_content_margin_all(0)
+            var fill := UITheme.box(GameData.SYSTEM_COLORS[GameData.SYSTEMS.find(pet_system)], 7)
+            fill.set_content_margin_all(0)
+            progress.add_theme_stylebox_override("background", track)
+            progress.add_theme_stylebox_override("fill", fill)
             box.add_child(progress)
+            box.add_child(_label(UI.t("rooms.cycle", [_amount(production_data["cycle"]), _amount(remaining)]), 12, UITheme.INK_SOFT))
         else:
-            box.add_child(_label(UI.t("rooms.assign_hint"), 13))
+            box.add_child(_label(UI.t("rooms.assign_hint"), 13, UITheme.INK_SOFT))
         var row := _row(box)
-        row.add_child(_button(UI.t("rooms.choose_pet"), "_choose_character", [i, "pet"], Color("f7c8a5")))
-        row.add_child(_button(UI.t("rooms.choose_employee"), "_choose_character", [i, "employee"], Color("c5dcf4")))
-    body.add_child(_button(UI.t("rooms.unlock", [_amount(GameData.room_cost(game.rooms.size() + 1))]), "_unlock_room", [], Color("f5d98c")))
+        row.add_child(_button(UI.t("rooms.choose_pet"), "_choose_character", [i, "pet"], UITheme.PEACH))
+        row.add_child(_button(UI.t("rooms.choose_employee"), "_choose_character", [i, "employee"], UITheme.SKY))
+    var unlock := _button(UI.t("rooms.unlock", [_amount(GameData.room_cost(game.rooms.size() + 1))]), "_unlock_room", [], UITheme.BUTTER)
+    unlock.custom_minimum_size.y = 52
+    body.add_child(unlock)
 
 func _render_characters() -> void:
     var all_ids := _character_ids(character_category)
     var ids := _character_ids(character_category, character_system_filter, character_tier_filter)
-    body.add_child(_label(UI.t("characters.title", [ids.size(), all_ids.size()]), 21))
+    _section_title(UI.t("characters.title", [ids.size(), all_ids.size()]), "characters")
     var merge_count := game.merge_all_preview(character_category)
-    var merge_button := _button(UI.t("merge.all_button", [UI.category_name(character_category), merge_count]), "_merge_all_prompt", [character_category], Color("f2c5d5"))
+    var merge_button := _button(UI.t("merge.all_button", [UI.category_name(character_category), merge_count]), "_merge_all_prompt", [character_category], UITheme.BUTTER)
     merge_button.disabled = merge_count == 0
     body.add_child(merge_button)
     var identity_counts := {}
@@ -351,81 +557,103 @@ func _render_characters() -> void:
         tier_counts[key] = int(tier_counts.get(key, 0)) + 1
     if ids.is_empty():
         var empty_key := "characters.empty_pet" if character_category == "pet" else "characters.empty_employee"
-        body.add_child(_label(UI.t(empty_key if all_ids.is_empty() else "characters.empty_filter"), 15))
+        _info(UI.t(empty_key if all_ids.is_empty() else "characters.empty_filter"))
     for id in ids:
         var character = game.characters[id]
         var info := GameData.identity_info(character["identity"])
-        var color: Color = GameData.SYSTEM_COLORS[GameData.SYSTEMS.find(info["system"])].lightened(0.73)
+        var color: Color = GameData.SYSTEM_COLORS[GameData.SYSTEMS.find(info["system"])].lightened(0.8)
         var box := _card(body, color)
         var actor_row := _row(box)
         actor_row.add_child(_portrait(character["identity"]))
         var details := VBoxContainer.new()
         details.size_flags_horizontal = Control.SIZE_EXPAND_FILL
         actor_row.add_child(details)
-        details.add_child(_label(UI.t("characters.name_rank", [UI.category_name(info["category"]), info["name"], GameData.rank_name(character["tier"])]), 16))
+        details.alignment = BoxContainer.ALIGNMENT_CENTER
+        details.add_child(_heading(UI.t("characters.name_rank", [UI.category_name(info["category"]), info["name"], GameData.rank_name(character["tier"])]), 16))
         var room_text := UI.t("common.room", [game.room_for(id) + 1]) if game.room_for(id) >= 0 else UI.t("common.unassigned")
-        details.add_child(_label(UI.t("characters.summary", [_system_label(info["system"]), character["books"].size() + int(character["foreign"] != ""), GameData.slots(character["tier"]), room_text]), 12))
+        details.add_child(_label(UI.t("characters.summary", [_system_label(info["system"]), character["books"].size() + int(character["foreign"] != ""), GameData.slots(character["tier"]), room_text]), 12, UITheme.INK_SOFT))
         var copy_key := "%s:%d" % [character["identity"], character["tier"]]
         var copies_key := "characters.copies_max" if character["tier"] == 26 else "characters.copies"
         var copies_values := [identity_counts[character["identity"]], tier_counts[copy_key]]
         if character["tier"] < 26:
             copies_values.append(3 if character["tier"] % 3 == 2 else 2)
-        details.add_child(_label(UI.t(copies_key, copies_values), 12))
+        details.add_child(_label(UI.t(copies_key, copies_values), 12, UITheme.INK_SOFT))
         var row := _row(box)
-        row.add_child(_button(UI.t("characters.details"), "_show_character", [id], Color("c7dbea")))
+        row.add_child(_button(UI.t("characters.details"), "_show_character", [id], Color.WHITE))
         if character["tier"] < 26:
-            row.add_child(_button(UI.t("characters.merge"), "_merge_prompt", [id], Color("f2c5d5")))
+            row.add_child(_button(UI.t("characters.merge"), "_merge_prompt", [id], UITheme.PINK))
 
 func _render_gacha() -> void:
-    body.add_child(_label(UI.t("gacha.title"), 21))
-    body.add_child(_label(UI.t("gacha.rates"), 13))
+    _section_title(UI.t("gacha.title"), "gacha")
+    _info(UI.t("gacha.rates"))
     for banner_id in ["normal_pet", "normal_employee", "vip_pet", "vip_employee"]:
         var banner := GameData.banner(banner_id)
-        var box := _card(body, Color("ebe7f6") if banner["currency"] == "crystal" else Color("fff0d7"))
-        box.add_child(_label(UI.t("gacha.banner." + banner_id), 18))
-        box.add_child(_label(UI.t("gacha.price", [_amount(banner["price"]), _system_label(banner["currency"])]), 13))
+        var vip: bool = banner["currency"] == "crystal"
+        var box := _card(body, Color("efe8fb") if vip else Color("fff3df"))
+        var head := _row(box)
+        head.add_child(_icon("gacha", 30, Color("9d7be0") if vip else Color("f0a540")))
+        var name_label := _heading(UI.t("gacha.banner." + banner_id), 18)
+        name_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+        head.add_child(name_label)
+        var price_row := _row(box)
+        price_row.add_child(_icon("coin:" + banner["currency"], 20))
+        price_row.add_child(_label(UI.t("gacha.price", [_amount(banner["price"]), _system_label(banner["currency"])]), 13, INK, 800))
         var systems := []
         for system in GameData.SYSTEMS:
             systems.append(_system_label(system))
-        box.add_child(_label(UI.t("gacha.systems", [", ".join(systems)]), 12))
+        box.add_child(_label(UI.t("gacha.systems", [", ".join(systems)]), 12, UITheme.INK_SOFT))
         var row := _row(box)
         for paid in [1, 10, 100]:
-            var button := _button(UI.t("gacha.package", [paid]), "_pull_gacha", [banner_id, paid], Color("f7c9a7"))
+            var button := _button(UI.t("gacha.package", [paid]), "_pull_gacha", [banner_id, paid], UITheme.LILAC if vip else UITheme.PEACH)
             button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
             row.add_child(button)
 
 func _render_shop() -> void:
-    body.add_child(_label(UI.t("shop.title"), 21))
-    body.add_child(_label(UI.t("shop.provisional"), 13))
-    body.add_child(_label(UI.t("shop.stacks"), 13))
+    _section_title(UI.t("shop.title"), "shop")
+    _info(UI.t("shop.provisional") + "\n" + UI.t("shop.stacks"))
     for i in GameData.SYSTEMS.size():
         var system: String = GameData.SYSTEMS[i]
-        var box := _card(body, GameData.SYSTEM_COLORS[i].lightened(0.72))
-        box.add_child(_label(UI.t("shop.next_price", [_system_label(system), _amount(GameData.book_cost(game.book_purchases[system]))]), 16))
+        var box := _card(body, GameData.SYSTEM_COLORS[i].lightened(0.82))
+        var head := _row(box)
+        head.add_child(_icon("coin:" + system, 28))
+        var price := _heading(UI.t("shop.next_price", [_system_label(system), _amount(GameData.book_cost(game.book_purchases[system]))]), 15)
+        price.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+        head.add_child(price)
         var row := _row(box)
-        row.add_child(_button(UI.t("shop.pet_book"), "_buy_book", ["pet", system], Color("f7c8a5")))
-        row.add_child(_button(UI.t("shop.employee_book"), "_buy_book", ["employee", system], Color("c5dcf4")))
-    body.add_child(_label(UI.t("shop.owned", [game.books.size()]), 14))
+        row.add_child(_button(UI.t("shop.pet_book"), "_buy_book", ["pet", system], UITheme.PEACH))
+        row.add_child(_button(UI.t("shop.employee_book"), "_buy_book", ["employee", system], UITheme.SKY))
+    var owned := _card(body, SOFT)
+    var owned_head := _row(owned)
+    owned_head.add_child(_icon("collection", 24, UITheme.TITLE))
+    owned_head.add_child(_heading(UI.t("shop.owned", [game.books.size()]), 16))
     for book_id in game.books:
         var book = game.books[book_id]
         var owner: String = book["equipped_by"]
-        body.add_child(_label(UI.t("shop.book_entry", [book_id, UI.category_name(book["category"]), _system_label(book["system"]), _character_name(owner) if owner != "" else UI.t("common.available")]), 12))
+        var entry := _row(owned)
+        entry.add_child(_icon("coin:" + book["system"], 18))
+        var text := _label(UI.t("shop.book_entry", [book_id, UI.category_name(book["category"]), _system_label(book["system"]), _character_name(owner) if owner != "" else UI.t("common.available")]), 12, INK if owner == "" else UITheme.INK_SOFT)
+        text.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+        entry.add_child(text)
 
 func _render_collection() -> void:
-    body.add_child(_label(UI.t("collection.title"), 21))
-    body.add_child(_label(UI.t("collection.intro"), 13))
+    _section_title(UI.t("collection.title"), "collection")
+    _info(UI.t("collection.intro"))
     for category in ["pet", "employee"]:
-        var box := _card(body, Color("f9e7ec") if category == "pet" else Color("e4eff8"))
-        box.add_child(_label(UI.t("collection.pets" if category == "pet" else "collection.employees"), 18))
+        var box := _card(body, Color("fdeef3") if category == "pet" else Color("eaf3fb"))
+        box.add_child(_heading(UI.t("collection.pets" if category == "pet" else "collection.employees"), 17))
         for i in GameData.SYSTEMS.size():
             var system: String = GameData.SYSTEMS[i]
-            box.add_child(_label(UI.t("collection.entry", [GameData.SYSTEM_ICONS[i], UI.system_name(system), UI.t("common.unlocked" if game.collections[category].has(system) else "common.locked")]), 14))
-    body.add_child(_label(UI.t("collection.effect"), 13))
+            var unlocked: bool = game.collections[category].has(system)
+            var entry := _row(box)
+            entry.modulate.a = 1.0 if unlocked else 0.5
+            entry.add_child(_icon("coin:" + system, 22))
+            entry.add_child(_label(UI.t("collection.entry", ["", UI.system_name(system), UI.t("common.unlocked" if unlocked else "common.locked")]).strip_edges(), 14, INK, 800 if unlocked else 700))
+    _info(UI.t("collection.effect"))
 
 func _render_help() -> void:
+    _section_title(UI.t("help.title"), "help")
     var box := _card(body)
-    box.add_child(_label(UI.t("help.title"), 21))
-    box.add_child(_label(UI.t("help.body"), 15))
+    box.add_child(_label(UI.t("help.body"), 14))
 
 func _change_page(target: String) -> void:
     page = target
@@ -434,15 +662,21 @@ func _change_page(target: String) -> void:
 
 func _feedback(message: String) -> void:
     status.text = message
-    var feedback_tween := create_tween()
-    feedback_tween.tween_property(status, "modulate:a", 0.5, 0.1)
-    feedback_tween.tween_property(status, "modulate:a", 1.0, 0.2)
+    status_toast.visible = message != ""
+    if toast_tween != null:
+        toast_tween.kill()
+    status_toast.modulate.a = 0.0
+    toast_tween = create_tween()
+    toast_tween.tween_property(status_toast, "modulate:a", 1.0, 0.15)
+    toast_tween.tween_interval(2.6)
+    toast_tween.tween_property(status_toast, "modulate:a", 0.0, 0.4)
+    toast_tween.tween_callback(func(): status_toast.visible = false)
     _render()
 
 func _save() -> void:
     var error := game.save_game()
-    if error != "":
-        status.text = error
+    if error != "" and status != null:
+        _feedback(error)
 
 func _sync_and_save() -> void:
     game.catch_up(Time.get_unix_time_from_system())
@@ -631,12 +865,20 @@ func _show_options(title: String, options: Array, details: String = "", show_pic
     margin.add_theme_constant_override("margin_bottom", 45)
     overlay.add_child(margin)
     var panel := PanelContainer.new()
-    panel.add_theme_stylebox_override("panel", _style(SOFT, 20))
+    var panel_style := UITheme.box(SOFT, 26, UITheme.PINK, 3, true)
+    panel_style.content_margin_left = 16
+    panel_style.content_margin_right = 16
+    panel_style.content_margin_top = 16
+    panel_style.content_margin_bottom = 16
+    panel.add_theme_stylebox_override("panel", panel_style)
     panel.mouse_filter = Control.MOUSE_FILTER_PASS
     margin.add_child(panel)
     var box := VBoxContainer.new()
+    box.add_theme_constant_override("separation", 10)
     panel.add_child(box)
-    box.add_child(_label(title, 20))
+    var heading := _heading(title, 19, UITheme.TITLE)
+    heading.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+    box.add_child(heading)
     if show_picker_filters:
         var filters := HBoxContainer.new()
         filters.add_theme_constant_override("separation", 6)
@@ -649,14 +891,19 @@ func _show_options(title: String, options: Array, details: String = "", show_pic
     box.add_child(scroll)
     var choices := VBoxContainer.new()
     choices.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+    choices.add_theme_constant_override("separation", 8)
     scroll.add_child(choices)
     if details != "":
-        choices.add_child(_label(details, 13))
+        var detail_panel := PanelContainer.new()
+        detail_panel.add_theme_stylebox_override("panel", UITheme.box(Color("faf3f7"), 14))
+        detail_panel.mouse_filter = Control.MOUSE_FILTER_PASS
+        detail_panel.add_child(_label(details, 13))
+        choices.add_child(detail_panel)
     for option in options:
-        var option_button := _button(option["label"], option["method"], option["args"], Color("e8dff0"))
+        var option_button := _button(option["label"], option["method"], option["args"], UITheme.LILAC)
         option_button.custom_minimum_size.y = 56
         choices.add_child(option_button)
-    box.add_child(_button(UI.t("common.close"), "_close_overlay", [], Color("f6c6c9")))
+    box.add_child(_button(UI.t("common.close"), "_close_overlay", [], UITheme.PINK))
 
 func _close_overlay() -> void:
     overlay.visible = false

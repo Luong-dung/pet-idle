@@ -11,15 +11,21 @@ func _init() -> void:
     mouse_filter = Control.MOUSE_FILTER_IGNORE
 
 func _draw() -> void:
+    var origin := (size - Vector2(64, 64)) / 2.0
     var info := GameData.identity_info(identity_id)
     if info.is_empty():
+        _draw_empty_slot(origin)
         return
-    var origin := (size - Vector2(64, 64)) / 2.0
     var base: Color = GameData.SYSTEM_COLORS[GameData.SYSTEMS.find(info["system"])]
     var outline := Color("565062")
     var shade := base.darkened(0.2)
     var light := base.lightened(0.45)
-    _pixel(origin, 2, 2, 60, 60, base.lightened(0.67))
+    var frame := StyleBoxFlat.new()
+    frame.bg_color = base.lightened(0.7)
+    frame.border_color = base.lightened(0.25)
+    frame.set_border_width_all(2)
+    frame.set_corner_radius_all(16)
+    draw_style_box(frame, Rect2(origin, Vector2(64, 64)))
     _pixel(origin, 7, 48, 50, 8, base.lightened(0.53))
     if info["category"] == "pet":
         match info["index"]:
@@ -63,6 +69,22 @@ func _draw() -> void:
     var accent: Color = [Color("f6d774"), Color("c1a8ee"), Color("f3a6c5")][info["index"]]
     _pixel(origin, 46, 8, 10, 10, outline)
     _pixel(origin, 48, 10, 6, 6, accent)
+
+## Empty room slot: soft dashed frame with a plus sign.
+func _draw_empty_slot(origin: Vector2) -> void:
+    var frame := StyleBoxFlat.new()
+    frame.bg_color = Color(1, 1, 1, 0.55)
+    frame.set_corner_radius_all(16)
+    draw_style_box(frame, Rect2(origin, Vector2(64, 64)))
+    var dash := Color("c9bcd6")
+    for i in 8:
+        var t := 10.0 + i * 6.0
+        draw_line(origin + Vector2(t, 2), origin + Vector2(t + 3, 2), dash, 2.0)
+        draw_line(origin + Vector2(t, 62), origin + Vector2(t + 3, 62), dash, 2.0)
+        draw_line(origin + Vector2(2, t), origin + Vector2(2, t + 3), dash, 2.0)
+        draw_line(origin + Vector2(62, t), origin + Vector2(62, t + 3), dash, 2.0)
+    draw_rect(Rect2(origin + Vector2(29, 20), Vector2(6, 24)), dash)
+    draw_rect(Rect2(origin + Vector2(20, 29), Vector2(24, 6)), dash)
 
 func _pixel(origin: Vector2, x: int, y: int, w: int, h: int, color: Color) -> void:
     draw_rect(Rect2(origin + Vector2(x, y), Vector2(w, h)), color)
