@@ -256,6 +256,26 @@ func _run() -> void:
     await process_frame
     check(not main.overlay.visible and main.game.character_ids("pet").size() < before_merge and main.status.text == UI.t("merge.all_complete", [expected_merges]), "batch merge action reports expected merge count")
     check(main.game.merge_all_preview("pet") == 0, "batch merge action reaches stable inventory")
+    main._change_page("rooms")
+    await process_frame
+    await process_frame
+    var map: WorldMap = main.world_map
+    check(map.is_visible_in_tree() and map.size.y >= 200, "3D room map visible on rooms page")
+    check(map._room_nodes.size() == main.game.rooms.size(), "map builds one diorama per room")
+    var tapped := []
+    for slot in [0, 1, main.game.rooms.size()]:
+        var pixel := map.camera.unproject_position(WorldMap.slot_position(slot) + Vector3(0, 0.3, 0))
+        tapped.append(map.pick(pixel / Vector2(map.viewport.size) * map.size))
+    check(tapped == [0, 1, main.game.rooms.size()], "map taps resolve rooms and unlock plot: " + str(tapped))
+    main._select_room(main.game.rooms.size())
+    await process_frame
+    check(_has_text_containing(main.body, UI.t("rooms.unlock", [main._amount(GameData.room_cost(main.game.rooms.size() + 1))])), "tapping unlock plot shows unlock button")
+    main._select_room(1)
+    await process_frame
+    check(_has_text(main.body, UI.t("rooms.room_number", [2])), "tapping a room shows its details")
+    main._change_page("gacha")
+    await process_frame
+    check(not map.is_visible_in_tree(), "map hidden on other pages")
     print("UI TESTS: %d checks, %d failures" % [checks, failures])
     quit(0 if failures == 0 else 1)
 

@@ -26,6 +26,8 @@ var pending_touch_render := false
 var balance_labels: Array = []
 var nav_items := {}
 var status_toast: PanelContainer
+var world_map: WorldMap
+var selected_room := 0
 var toast_tween: Tween
 const INK := UITheme.INK
 const SOFT := UITheme.SURFACE
@@ -202,6 +204,18 @@ func _build_shell() -> void:
     root.add_theme_constant_override("separation", 8)
     margin.add_child(root)
     root.add_child(_build_header())
+    world_map = WorldMap.new()
+    world_map.size_flags_vertical = Control.SIZE_EXPAND_FILL
+    world_map.size_flags_stretch_ratio = 1.35
+    world_map.room_tapped.connect(_select_room)
+    var map_frame := PanelContainer.new()
+    var map_style := UITheme.box(Color.WHITE, 22, Color.WHITE, 3, true)
+    map_style.set_content_margin_all(3)
+    map_frame.add_theme_stylebox_override("panel", map_style)
+    map_frame.size_flags_vertical = Control.SIZE_EXPAND_FILL
+    map_frame.size_flags_stretch_ratio = 1.35
+    map_frame.add_child(world_map)
+    root.add_child(map_frame)
     character_tabs = HBoxContainer.new()
     character_tabs.add_theme_constant_override("separation", 8)
     root.add_child(character_tabs)
@@ -382,6 +396,10 @@ func _render() -> void:
         return
     _render_balances()
     _update_nav()
+    world_map.get_parent().visible = page == "rooms"
+    if page == "rooms":
+        selected_room = clampi(selected_room, 0, game.rooms.size())
+        world_map.sync(game, selected_room)
     for child in body.get_children():
         child.queue_free()
     character_tabs.visible = page == "characters"
@@ -489,55 +507,65 @@ func _select_character_category(category: String) -> void:
 
 func _render_rooms() -> void:
     _section_title(UI.t("rooms.title"), "rooms")
-    for i in game.rooms.size():
-        var room = game.rooms[i]
-        var box := _card(body, Color("fff1ec") if i % 2 == 0 else Color("eef7f2"))
-        _badge(box, UI.t("rooms.room_number", [i + 1]), UITheme.PEACH if i % 2 == 0 else UITheme.MINT)
-        var actors := _row(box)
-        actors.add_child(_portrait(game.characters[room["pet"]]["identity"] if room["pet"] != "" else ""))
-        actors.add_child(_portrait(game.characters[room["employee"]]["identity"] if room["employee"] != "" else ""))
-        var actor_names := VBoxContainer.new()
-        actor_names.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-        actors.add_child(actor_names)
-        var pet_name := _character_name(room["pet"])
-        var employee_name := _character_name(room["employee"])
-        if room["pet"] != "":
-            pet_name += " · " + _system_label(GameData.identity_info(game.characters[room["pet"]]["identity"])["system"])
-        if room["employee"] != "":
-            employee_name += " · " + _system_label(GameData.identity_info(game.characters[room["employee"]]["identity"])["system"])
-        actor_names.alignment = BoxContainer.ALIGNMENT_CENTER
-        actor_names.add_child(_label(UI.t("rooms.pet", [pet_name]), 13))
-        actor_names.add_child(_label(UI.t("rooms.employee", [employee_name]), 13, UITheme.INK_SOFT))
-        var production_data := game.production(room)
-        if not production_data.is_empty():
-            var remaining: float = maxf(0.0, production_data["cycle"] - room["progress"])
-            for system in GameData.SYSTEMS:
-                if production_data["outputs"].has(system):
-                    var output_row := _row(box)
-                    output_row.add_child(_icon("coin:" + system, 20))
-                    output_row.add_child(_label(UI.t("rooms.output", [_amount(production_data["outputs"][system]), _system_label(system)]), 14, INK, 800))
-            var progress := ProgressBar.new()
-            progress.custom_minimum_size.y = 14
-            progress.max_value = production_data["cycle"]
-            progress.value = room["progress"]
-            progress.show_percentage = false
-            var pet_system: String = GameData.identity_info(game.characters[room["pet"]]["identity"])["system"]
-            var track := UITheme.box(Color("efe5ec"), 7)
-            track.set_content_margin_all(0)
-            var fill := UITheme.box(GameData.SYSTEM_COLORS[GameData.SYSTEMS.find(pet_system)], 7)
-            fill.set_content_margin_all(0)
-            progress.add_theme_stylebox_override("background", track)
-            progress.add_theme_stylebox_override("fill", fill)
-            box.add_child(progress)
-            box.add_child(_label(UI.t("rooms.cycle", [_amount(production_data["cycle"]), _amount(remaining)]), 12, UITheme.INK_SOFT))
-        else:
-            box.add_child(_label(UI.t("rooms.assign_hint"), 13, UITheme.INK_SOFT))
-        var row := _row(box)
-        row.add_child(_button(UI.t("rooms.choose_pet"), "_choose_character", [i, "pet"], UITheme.PEACH))
-        row.add_child(_button(UI.t("rooms.choose_employee"), "_choose_character", [i, "employee"], UITheme.SKY))
-    var unlock := _button(UI.t("rooms.unlock", [_amount(GameData.room_cost(game.rooms.size() + 1))]), "_unlock_room", [], UITheme.BUTTER)
-    unlock.custom_minimum_size.y = 52
-    body.add_child(unlock)
+    if selected_room >= game.rooms.size():
+        var plot := _card(body, Color("fff6dc"))
+        _badge(plot, UI.t("rooms.plot_title"), UITheme.BUTTER)
+        plot.add_child(_label(UI.t("rooms.plot_hint"), 13, UITheme.INK_SOFT))
+        var unlock := _button(UI.t("rooms.unlock", [_amount(GameData.room_cost(game.rooms.size() + 1))]), "_unlock_room", [], UITheme.BUTTER)
+        unlock.custom_minimum_size.y = 52
+        plot.add_child(unlock)
+        return
+    var i := selected_room
+    var room = game.rooms[i]
+    var box := _card(body, Color("fff1ec") if i % 2 == 0 else Color("eef7f2"))
+    _badge(box, UI.t("rooms.room_number", [i + 1]), UITheme.PEACH if i % 2 == 0 else UITheme.MINT)
+    var actors := _row(box)
+    actors.add_child(_portrait(game.characters[room["pet"]]["identity"] if room["pet"] != "" else ""))
+    actors.add_child(_portrait(game.characters[room["employee"]]["identity"] if room["employee"] != "" else ""))
+    var actor_names := VBoxContainer.new()
+    actor_names.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+    actors.add_child(actor_names)
+    var pet_name := _character_name(room["pet"])
+    var employee_name := _character_name(room["employee"])
+    if room["pet"] != "":
+        pet_name += " · " + _system_label(GameData.identity_info(game.characters[room["pet"]]["identity"])["system"])
+    if room["employee"] != "":
+        employee_name += " · " + _system_label(GameData.identity_info(game.characters[room["employee"]]["identity"])["system"])
+    actor_names.alignment = BoxContainer.ALIGNMENT_CENTER
+    actor_names.add_child(_label(UI.t("rooms.pet", [pet_name]), 13))
+    actor_names.add_child(_label(UI.t("rooms.employee", [employee_name]), 13, UITheme.INK_SOFT))
+    var production_data := game.production(room)
+    if not production_data.is_empty():
+        var remaining: float = maxf(0.0, production_data["cycle"] - room["progress"])
+        for system in GameData.SYSTEMS:
+            if production_data["outputs"].has(system):
+                var output_row := _row(box)
+                output_row.add_child(_icon("coin:" + system, 20))
+                output_row.add_child(_label(UI.t("rooms.output", [_amount(production_data["outputs"][system]), _system_label(system)]), 14, INK, 800))
+        var progress := ProgressBar.new()
+        progress.custom_minimum_size.y = 14
+        progress.max_value = production_data["cycle"]
+        progress.value = room["progress"]
+        progress.show_percentage = false
+        var pet_system: String = GameData.identity_info(game.characters[room["pet"]]["identity"])["system"]
+        var track := UITheme.box(Color("efe5ec"), 7)
+        track.set_content_margin_all(0)
+        var fill := UITheme.box(GameData.SYSTEM_COLORS[GameData.SYSTEMS.find(pet_system)], 7)
+        fill.set_content_margin_all(0)
+        progress.add_theme_stylebox_override("background", track)
+        progress.add_theme_stylebox_override("fill", fill)
+        box.add_child(progress)
+        box.add_child(_label(UI.t("rooms.cycle", [_amount(production_data["cycle"]), _amount(remaining)]), 12, UITheme.INK_SOFT))
+    else:
+        box.add_child(_label(UI.t("rooms.assign_hint"), 13, UITheme.INK_SOFT))
+    var row := _row(box)
+    row.add_child(_button(UI.t("rooms.choose_pet"), "_choose_character", [i, "pet"], UITheme.PEACH))
+    row.add_child(_button(UI.t("rooms.choose_employee"), "_choose_character", [i, "employee"], UITheme.SKY))
+
+func _select_room(index: int) -> void:
+    selected_room = clampi(index, 0, game.rooms.size())
+    content_scroll.scroll_vertical = 0
+    _render()
 
 func _render_characters() -> void:
     var all_ids := _character_ids(character_category)
@@ -687,6 +715,8 @@ func _unlock_room() -> void:
     var error := game.unlock_room()
     if error == "":
         _save()
+        selected_room = game.rooms.size() - 1
+        world_map.focus_on(selected_room)
     _feedback(UI.t("room.unlocked") if error == "" else error)
 
 func _choose_character(room_index: int, category: String) -> void:
